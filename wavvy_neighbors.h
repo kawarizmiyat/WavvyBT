@@ -57,7 +57,10 @@ public:
     inline wavvy_neighbor& next();
     inline wavvy_neighbor& next_not_contacted();
 
-    inline void sort() { std::sort(neighbors.begin(), neighbors.end()); }
+    inline void sort() {
+        std::sort(neighbors.begin(), neighbors.end());
+        std::reverse(neighbors.begin(), neighbors.end());
+    }
     inline unsigned int size() const { return neighbors.size(); }
 
     inline bool is_in(const node_id& u) {

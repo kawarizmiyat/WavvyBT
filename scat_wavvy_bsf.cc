@@ -6,7 +6,6 @@
 // constructor:
 ScatFormWavvy::ScatFormWavvy(BTNode *n):
     ScatFormator(n),
-    id_(-1),
     my_status(INIT),
     current_iteration(0),
     my_role(NONE),
@@ -31,7 +30,10 @@ void ScatFormWavvy::_addNeighbor(node_id id) {
     if (id > -1) {
 
         all_neighbors.insert_node(id);
-
+        if (trace_node()) {
+            fprintf(stderr, "node %d is adding neighbor %d to its neighborhood list ..\n",
+                    this->id_, id);
+        }
 
 
         // adding neighbor clock in the Bd_info;
@@ -102,27 +104,25 @@ void ScatFormWavvy::change_status(status new_stat) {
         break;
 
     case DOWN_TO_UP_WAIT:
-        // clear_contact_info(&down_neighbors);
-
         down_neighbors.mark_contacted_all();
         ex_round_messages();
         break;
 
     case DOWN_TO_UP_ACTION:
-        // clear_contact_info(&up_neighbors);
-
         up_neighbors.mark_contacted_all();
         ex_round_messages();
+        break;
 
     case TERMINATE:
         this->finishing_time = Scheduler::instance().clock() ;
         if (trace_node()) {
-            fprintf(stderr, "node %d terminated the algorithm at %2.3%f",
+            fprintf(stderr, "node %d terminated the algorithm at %2.3f\n",
                     this->id_, this->finishing_time);
         }
+        break;
 
     default:
-        fprintf(stderr, "error: state  is unsupportable in %s  .. ", __FUNCTION__);
+        fprintf(stderr, "error: state  is unsupportable in %s  ..\n", __FUNCTION__);
         abort();
     }
 
@@ -168,8 +168,8 @@ void ScatFormWavvy::ex_round_messages() {
 
 
         } else {
-            change_status(TERMINATE);
-            // change_status(DOWN_TO_UP_WAIT);
+            // change_status(TERMINATE);
+            change_status(DOWN_TO_UP_WAIT);
         }
 
 
@@ -183,86 +183,6 @@ void ScatFormWavvy::ex_round_messages() {
     }
 }
 
-
-// we don't need any of these functions anymore ..
-/*
-node_id ScatFormWavvy::find_promising_receiver() {
-
-    node_id return_addr;
-    while (!is_promising(return_addr)) {
-        increase_current_page_counter();
-    }
-    return return_addr;
-}
-bool ScatFormWavvy::is_promising(int& return_addr) {
-    wavvy_neighbor* n = null;
-    bool return_val;
-
-    switch (this->my_status) {
-
-        case UP_TO_DOWN_ACTION:
-        n = &(this->down_neighbors.at(current_page_counter));
-        return_val = !(n->contacted);
-        break;
-
-        case DOWN_TO_UP_ACTION:
-        n = &(this->up_neighbors.at(current_page_counter));
-        return_val = !(n->contacted);
-        break;
-
-        default:
-        fprintf(stderr, "error in %d - status cannot be handled in %s", this->id_, __FUNCTION__);
-        abort();
-    }
-
-    return_addr = n->id;
-    return return_val;
-}
-void ScatFormWavvy::increase_current_page_counter() {
-    switch(this->my_status) {
-        case UP_TO_DOWN_ACTION:
-        current_page_counter = (current_page_counter + 1) % this->down_neighbors.size();
-        break;
-
-        case DOWN_TO_UP_WAIT:
-        current_page_counter = (current_page_counter + 1) % this->up_neighbors.size();
-        break;
-
-    default:
-        fprintf(stderr, "error in %d - status cannot be handled in %s", this->id_, __FUNCTION__);
-        abort();
-    }
-}
-node_id ScatFormWavvy::find_promising_receiver() {
-
-    switch (this->my_status) {
-
-    case (UP_TO_DOWN_ACTION):
-        for (nmap_iter it = down_neighbors.begin(); it != down_neighbors.end(); it++) {
-            if (!it->second.contacted) return it->first;
-        }
-        break;
-
-    case (DOWN_TO_UP_ACTION):
-        for (nmap_iter it = up_neighbors.begin(); it != up_neighbors.end(); it++) {
-            if (!it->second.contacted) return it->first;
-        }
-        break;
-
-    default:
-        fprintf(stderr, "error(%d): status is not supported in %s\n", this->id_, __FUNCTION__);
-        abort();
-        break;
-    }
-
-    fprintf(stderr, "warninig: most-likely we found that there are no promising neighbors ");
-    fprintf(stderr, "in state %s of node %d - (%s)", state_str(this->my_status), this->id_,
-            __FUNCTION__);
-    abort();
-
-
-}
-*/
 
 
 void ScatFormWavvy::connected(bd_addr_t rmt) {
@@ -301,6 +221,13 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
     node_type n_type = get_node_type();
     if (n_type == SOURCE) {
         MsgCandidate candid_msg(this->id_, false);
+
+
+        if (trace_node()) {
+            fprintf(stderr, "source node %d sent msg_candidate to %d (reply:%s, candid_id:%d)\n",
+                    this->id_, rmt, bool2str(candid_msg.reply),
+                    candid_msg.candidate_id);
+        }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
     } else if (n_type == INTERMEDIATE) {
@@ -311,6 +238,12 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
         // A: No, we don't need that .. the reaction to this message is similar to
         // the one above ..
         MsgCandidate candid_msg(max_candidate, false);
+
+        if (trace_node()) {
+            fprintf(stderr, "intermediate node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d)\n",
+                    this->id_, rmt, bool2str(candid_msg.reply),
+                    candid_msg.candidate_id);
+        }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
     } else {
@@ -333,8 +266,9 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
     // keep track of rcvd statistics ..
     msg_stats.rcvd ++;
 
-    if (this->trace_node() && false) {
-        fprintf(stderr, "node %d received msg from %d \n", this->id_, rmt);
+    if (this->trace_node()) {
+        fprintf(stderr, "node %d received msg from %d (at %s) \n",
+                this->id_, rmt, __FUNCTION__);
     }
 
     switch (msg->code) {
@@ -355,7 +289,7 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
     MsgCandidate* rcvd_msg = (MsgCandidate*) msg->data;
 
     if (trace_node()) {
-        fprintf(stderr, "node %d received cmd_candidate msg from %d: [reply:%s, cand_id:%d] \n",
+        fprintf(stderr, "node %d received cmd_candidate msg from %d: (reply:%s, cand_id:%d) \n",
                 this->id_, rmt, bool2str(rcvd_msg->reply), rcvd_msg->candidate_id);
     }
 
@@ -366,9 +300,19 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
         candidate_table[rmt] = rcvd_msg->candidate_id;
         up_neighbors.mark_contacted_by_node_id(rmt);
 
+        if (trace_node()) {
+            fprintf(stderr, "node %d added %d to its candidates and marked %d contacted .. \n",
+                    this->id_, rcvd_msg->candidate_id, rmt);
+        }
+
         // mark_neighbor_contacted(up_neighbors, rmt);
 
         MsgCandidate candid_msg(this->id_, true);
+        if (trace_node()) {
+            fprintf(stderr, "node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d)\n",
+                    this->id_, rmt, bool2str(candid_msg.reply),
+                    candid_msg.candidate_id);
+        }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
     } else {
@@ -377,6 +321,10 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
         down_neighbors.mark_contacted_by_node_id(rmt);
         disconnect_page(rmt);
 
+        if (trace_node()) {
+            fprintf(stderr, "node %d marked %d as contacted and destroyed link .. \n",
+                    this->id_, rmt);
+        }
     }
 }
 

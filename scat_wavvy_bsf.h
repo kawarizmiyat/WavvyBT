@@ -188,7 +188,7 @@ private:
 
 private:
     nvect all_neighbors, up_neighbors, down_neighbors, unnecessary_neighbors;
-    node_id id_;
+    // node_id id_;
     status my_status;
     int current_iteration;
     role my_role;

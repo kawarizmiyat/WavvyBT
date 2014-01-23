@@ -172,6 +172,10 @@ void ScatFormWavvy::recv(Packet * p, int rmt) {
     }
 
     assert(msg->type == type());
+
+    if (trace_node()) {
+        fprintf(stderr, "node %d is in %s and is going to recv_handler \n",  this->id_, __FUNCTION__);
+    }
     recv_handler(msg, rmt);
 
 }
