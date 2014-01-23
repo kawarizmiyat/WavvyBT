@@ -5,6 +5,8 @@
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
+
+#include "scat_wavvy_bsf_utilities.h"
 using namespace std;
 
 struct wavvy_neighbor;
@@ -36,6 +38,7 @@ public:
 private:
     node_id id;
     bool contacted;
+
 
 };
 
@@ -83,6 +86,17 @@ public:
             if (! it->get_contacted()) return false;
         }
         return true;
+    }
+
+    void print() {
+
+        fprintf(stderr, "neighbors list: ");
+        for (vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
+             it ++) {
+            fprintf(stderr, "(%d, %s)", it->get_id(), bool2str(it->get_contacted()));
+        }
+        fprintf(stderr, "\n");
+
     }
 
 

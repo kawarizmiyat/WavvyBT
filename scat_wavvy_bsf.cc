@@ -1,4 +1,7 @@
-//TODO include other necessary header files.
+// TODO -- how to handle intersecting states ..
+//
+
+
 #include "scat_wavvy_bsf.h"
 
 
@@ -9,7 +12,8 @@ ScatFormWavvy::ScatFormWavvy(BTNode *n):
     my_status(INIT),
     current_iteration(0),
     my_role(NONE),
-    finishing_time (0) {
+    finishing_time (0),
+    yes_no_table(this){
 
 
     // Bluetooth layers configuration:
@@ -104,12 +108,15 @@ void ScatFormWavvy::change_status(status new_stat) {
         break;
 
     case DOWN_TO_UP_WAIT:
+        // initiation of the -YO phase .. (mark all neighbors as contacted).
         down_neighbors.mark_contacted_all();
+        up_neighbors.mark_contacted_all();
+
         ex_round_messages();
         break;
 
     case DOWN_TO_UP_ACTION:
-        up_neighbors.mark_contacted_all();
+
         ex_round_messages();
         break;
 
@@ -165,8 +172,6 @@ void ScatFormWavvy::ex_round_messages() {
 
             // connect_page(find_promising_receiver());
             connect_page(down_neighbors.next_not_contacted().get_id());
-
-
         } else {
             // change_status(TERMINATE);
             change_status(DOWN_TO_UP_WAIT);
@@ -175,8 +180,41 @@ void ScatFormWavvy::ex_round_messages() {
 
         break ;
 
+    case DOWN_TO_UP_WAIT:
+        if (! down_neighbors.is_all_contacted()) {
+
+            fprintf(stderr, "down_neighbors(%d): ", this->id_);
+            down_neighbors.print();
+
+            wait_in_page_scan();
+
+        } else {
+            cancel_page_scan();
+            change_status(DOWN_TO_UP_ACTION);
+        }
+        break;
+
+    case DOWN_TO_UP_ACTION:
+        if (! up_neighbors.is_all_contacted()) {
+            connect_page(up_neighbors.next_not_contacted().get_id());
+        } else {
+
+
+            if (get_node_type() == SOURCE) {
+                if (yes_no_table.is_all_yes()) {
+                    fprintf(stderr, "node %d is a surviving this phase .. \n", this->id_);
+                } else {
+                    fprintf(stderr, "node %d is not surviving this phase ..\n", this->id_);
+                    yes_no_table.print();
+                }
+            }
+
+            change_status(TERMINATE);
+        }
+        break;
+
     default:
-        fprintf(stderr, "**** Error: %d unsupported case %d \n", this->id_, this->my_status);
+        fprintf(stderr, "**** Error: %d unsupported case %d \n", this->id_, state_str(this->my_status));
         abort();
         break;
 
@@ -255,6 +293,32 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
 void ScatFormWavvy::initiate_connected_down_to_up_action(bd_addr_t rmt) {
     // action depends on whether you are a sink or intermediate ..
     // you should not reach this state if you are a source ..
+
+    // if not all the received responses (results) true ..
+    node_id max_candidate = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
+
+    if (trace_node()) {
+        fprintf(stderr, "is_all_yes(%d): %s .. candidate_table[%d] = %d \n", this->id_,
+                bool2str(this->yes_no_table.is_all_yes()), rmt, candidate_table[rmt]);
+    }
+
+    MsgResult result_msg(max_candidate,
+                         (this->yes_no_table.is_all_yes()) && (candidate_table[rmt] == max_candidate),
+                         false);
+
+    // debug:
+    // all_results_yes return true if sink ..
+    // if all_results_yes .. then  yes_no = (candidate_table[rmt] == max_candidate).
+    // if ! all_results_yes .. then yes_no = false.
+
+    if (trace_node()) {
+        fprintf(stderr, "node %d sent msg_result to %d (reply:%s, yes_no:%s, max_candidate:%d)\n",
+                this->id_, rmt,
+                bool2str(result_msg.reply),
+                bool2str(result_msg.yes_no),
+                result_msg.max_candidate_id);
+    }
+    sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
 }
 
 
@@ -276,6 +340,10 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
         recv_handler_cmd_candidate(msg, rmt);
         break;
 
+    case CmdResult:
+        recv_handler_cmd_result(msg, rmt);
+        break;
+
     default:
         fprintf(stderr, "*** Error at %d: unsupported type of messages \n", id_);
         abort();
@@ -283,6 +351,54 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
     }
 }
 
+void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
+
+    MsgResult* rcvd_msg = (MsgResult *) msg->data;
+
+    if (trace_node()) {
+        fprintf(stderr,
+                "node %d received cmd_result msg from %d:(reply:%s, yes_no:%s, max_cand_id:%d) \n",
+                this->id_, rmt, bool2str(rcvd_msg->reply),
+                bool2str(rcvd_msg->yes_no),
+                rcvd_msg->max_candidate_id);
+    }
+
+
+    if (! rcvd_msg->reply) {
+
+        yes_no_table.set_value(rmt, rcvd_msg->yes_no ? YES : NO);
+        down_neighbors.mark_contacted_by_node_id(rmt);
+
+        if (trace_node()) {
+            fprintf(stderr, "node %d marked node %d as contacted and set its yes_no value to %s\n",
+                    this->id_, rmt, response2str(yes_no_table.get_value(rmt)));
+        }
+
+
+        MsgResult result_msg(this->id_, false, true);
+        if (trace_node()) {
+            fprintf(stderr, "node %d sent msg_result to %d (reply:%s, max: candid_id:%d)\n",
+                    this->id_, rmt,
+                    bool2str(result_msg.reply),
+                    bool2str(result_msg.yes_no),
+                    result_msg.max_candidate_id);
+        }
+        sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
+
+
+    } else {
+
+        up_neighbors.mark_contacted_by_node_id(rmt);
+        disconnect_page(rmt);
+
+        if (trace_node()) {
+            fprintf(stderr, "node %d marked %d as contacted and destroyed link .. \n",
+                    this->id_, rmt);
+        }
+
+    }
+
+}
 
 void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
 

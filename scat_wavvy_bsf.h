@@ -44,6 +44,17 @@ struct MsgCandidate {
 };
 
 
+struct MsgResult {
+    MsgResult(node_id _id, bool _yes_no, bool _reply) :
+        max_candidate_id(_id),
+        yes_no(_yes_no),
+        reply(_reply) {}
+
+    node_id max_candidate_id;
+    bool yes_no;
+    bool reply;
+};
+
 // TODO: statuses .. need to be handled in a better way ..
 // a class or a struct ..
 class ScatFormWavvy : public ScatFormator {
@@ -59,12 +70,31 @@ class ScatFormWavvy : public ScatFormator {
 
     enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
+    enum response_type {YES, NO, NOT_KNOWN};
 
+
+
+    static const char *response2str(response_type t) {
+        switch(t) {
+        case YES: return "YES";
+        case NO: return "NO";
+        case NOT_KNOWN: return "NOT_KNOWN";
+        default:
+            fprintf(stderr, "unrecognized response_type .. ");
+            abort();
+        }
+
+
+    }
 
     static const char *state_str(status st) {
         static const char *const str[] = {
-            "INIT", "UP_TO_DOWN_WAIT", "UP_TO_DOWN_ACTION",
-            "DOWN_TO_UP_WAIT", "DOWN_TO_UP_ACTION", "TERMINATE",
+            "INIT",
+            "UP_TO_DOWN_WAIT",
+            "UP_TO_DOWN_ACTION",
+            "DOWN_TO_UP_WAIT",
+            "DOWN_TO_UP_ACTION",
+            "TERMINATE",
             "Invalid_state"
         };
         return str[st];
@@ -108,29 +138,9 @@ protected:
     void _main();
     void ex_round_messages();
 
-    // DELETED .. done ..
-    // bool is_all_contacted();
-
-    // TODELETE
-    void mark_neighbor_contacted(nvect& list, int n_id);
-
     void recv_handler(SFmsg* msg, int rmt);
     void recv_handler_cmd_candidate(SFmsg* msg, int rmt);
-
-    // TOCHANGE ... done
-    // bool _calculatePromising(int& ad);
-    // node_id find_promising_receiver();
-
-    // TODELETE .. .. done
-    // void _increaseCurrentPaging();      // which neighbors should you contact now.
-    // void _decreaseCurrentPaging();      // I think - we do not need these two functions.
-    // No, actually .. we need this ..
-    // What if the connection was not successful ..
-    // either - we go to the next (using a global
-    // current_paging counter) ..
-    // but we can also .. random sampling!
-    // This is our to-do.
-
+    void recv_handler_cmd_result(SFmsg* msg, int rmt);
 
 
     // These functions are made to avoid errors in communications..
@@ -161,13 +171,6 @@ private:
     inline void connect_page(int receiver_id);
     inline void disconnect_page(int receiver_id);
 
-    //TODO this should be moved to a different header file. -- done ..
-    // void move_node(node_id u, nvect* from, nvect* to);
-
-    // TODELETE .. .. done
-    //nvect_iter find_neighbor(nvect* vect, node_id u);
-    //void clear_contact_info(nvect* list);
-
 
     node_type get_node_type() {
         int up_size = up_neighbors.size();
@@ -184,6 +187,82 @@ private:
         }
     }
 
+private:
+
+    // honestly .. I m just trying to see if this appraoch is useful.
+    // to better organize the code ..
+
+    struct yes_no_map {
+    public:
+
+
+        yes_no_map(ScatFormWavvy* _scat_form_ptr):
+            is_all_yes_(true),
+            up_to_date(true),
+            scat_form_ptr(_scat_form_ptr)
+        {}
+
+        void set_value(node_id rmt, response_type value) {
+            table[rmt] = value;
+            up_to_date = false;
+        }
+
+
+        // Note: I am trying to access id_ here .. let's see if it is in the
+        // scope of the struct .. - well, if I don't inherit ScatWavvy, then I can't
+        // because id_ is not a static variable.
+        //
+        response_type get_value(node_id rmt) {
+            map<node_id, response_type>::iterator it;
+            if ((it = table.find(rmt)) != table.end()) return it->second;
+
+            fprintf(stderr, "error in %d trying to access an inexisting value yes_no_table[%d] \n",
+                    scat_form_ptr->id_, rmt);
+            abort();
+        }
+
+        void reset() {
+            for (map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+                 it ++ ) it->second = NOT_KNOWN;
+        }
+
+        bool is_all_yes() {
+            if (! up_to_date) calculate_all_yes();
+            return is_all_yes_;
+        }
+
+        void print() {
+            fprintf(stderr, "yes_no_t[%d]: ", scat_form_ptr->id_);
+            for (map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+                 it ++ )
+                fprintf(stderr, "(%d,%s) ", it->first, scat_form_ptr->response2str(it->second));
+            fprintf(stderr, "\n");
+
+        }
+
+    private:
+        bool is_all_yes_;
+        bool up_to_date;
+        map<node_id, response_type> table;
+        ScatFormWavvy* scat_form_ptr;
+
+        void calculate_all_yes() {
+            // in the case of sinks ..
+            fprintf(stderr, "I m in %s \n", __FUNCTION__);
+
+            if (table.empty()) { up_to_date = true; is_all_yes_ = true;  return; }
+
+            for (map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+                 it ++ ) {
+                if (it->second != YES) { is_all_yes_ = false; up_to_date = true; return; }
+            }
+            is_all_yes_ = true;
+            up_to_date = true;
+            return;
+        }
+
+    };
+
 
 
 private:
@@ -192,8 +271,10 @@ private:
     status my_status;
     int current_iteration;
     role my_role;
-    map<node_id, node_id> candidate_table;
     float finishing_time;
+
+    map<node_id, node_id> candidate_table;
+    yes_no_map yes_no_table;
 
     // Handling busy states and connections:
     Event busyDelayEv_, waitingDiscEv_, watchDogEv_;
