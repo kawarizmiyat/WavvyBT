@@ -1,15 +1,11 @@
 #ifndef __SCAT_WAVVY_BSF__
 #define __SCAT_WAVVY_BSF__
 
-#include <vector>
 #include <map>
-#include <iostream>
-
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 
 #include "../bnep.h"
 #include "../lmp.h"
@@ -29,6 +25,7 @@ using namespace std;
 #define WAITING_DISCONNECTION 0.25			// original (i.e. with collusion it was 0.25)
 #define WATCH_DOG_TIMER 10.0					// original (i.e. with collusion it was 0.5)
 
+#define DEBUG   1
 
 
 class ScatFormWavvy;
@@ -60,13 +57,16 @@ struct MsgResult {
 class ScatFormWavvy : public ScatFormator {
 
 
-    enum msgCmd {CmdCandidate, CmdForward, CmdResult};
     enum status {INIT,
                  UP_TO_DOWN_WAIT,
                  UP_TO_DOWN_ACTION,
                  DOWN_TO_UP_WAIT,
                  DOWN_TO_UP_ACTION,
                  TERMINATE};
+
+
+    enum msgCmd {CmdCandidate, CmdForward, CmdResult};
+
 
     enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
@@ -120,6 +120,16 @@ public:
     virtual void connected(bd_addr_t rmt);
     virtual void linkDetached(bd_addr_t rmt, uchar reason);
     virtual void recv(Packet * p, int rmt);
+    virtual void page_scan_completed();
+    virtual void page_complete() {}
+
+
+
+    // changes must be done in "lmp.cc"
+    void _pageNotSucced(int rmt);
+
+    // we won't need this function ..
+    // void _changeOffsetValue(int id);
 
     // it would have been better if this was virtual ..
     void _addNeighbor(node_id id);
@@ -131,12 +141,18 @@ protected:
     // initialization before main.
     void init_scat_formation_algorithm();
 
+    // constants used with flip_neighbor_direction ..
+    constexpr static const char* OUT_TO_IN = "out-to-in";
+    constexpr static const char* IN_TO_OUT = "in-to-out";
+
     void flip_neighbor_direction(node_id u, const char* code);
     void make_unnecessary_neighbor(node_id u, nvect& neighbors_list);
     void seperate_all_neighbors();
 
     void _main();
     void ex_round_messages();
+    void handle_iteration_end();
+
 
     void recv_handler(SFmsg* msg, int rmt);
     void recv_handler_cmd_candidate(SFmsg* msg, int rmt);
@@ -146,8 +162,7 @@ protected:
     // These functions are made to avoid errors in communications..
     void _expectingDisconnection(int rmt);
     void reset();
-    void _pageNotSucced(int rmt);
-    void _changeOffsetValue(int id);
+    //void _changeOffsetValue(int id);
 
 
     // debugging functions.
@@ -171,10 +186,10 @@ private:
     inline void connect_page(int receiver_id);
     inline void disconnect_page(int receiver_id);
 
-
+    // whether we use up_neighbors_p1 or up_neighbors_p2 .. it won't be a problem.
     node_type get_node_type() {
-        int up_size = up_neighbors.size();
-        int down_size = down_neighbors.size();
+        int up_size = up_neighbors_p1.size();
+        int down_size = down_neighbors_p1.size();
 
         if (up_size > 0 && down_size > 0) return INTERMEDIATE;
         if (up_size == 0 && down_size > 0) return SOURCE;
@@ -213,7 +228,7 @@ private:
         // because id_ is not a static variable.
         //
         response_type get_value(node_id rmt) {
-            map<node_id, response_type>::iterator it;
+            std::map<node_id, response_type>::iterator it;
             if ((it = table.find(rmt)) != table.end()) return it->second;
 
             fprintf(stderr, "error in %d trying to access an inexisting value yes_no_table[%d] \n",
@@ -222,7 +237,7 @@ private:
         }
 
         void reset() {
-            for (map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+            for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
                  it ++ ) it->second = NOT_KNOWN;
         }
 
@@ -233,26 +248,28 @@ private:
 
         void print() {
             fprintf(stderr, "yes_no_t[%d]: ", scat_form_ptr->id_);
-            for (map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+            for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
                  it ++ )
                 fprintf(stderr, "(%d,%s) ", it->first, scat_form_ptr->response2str(it->second));
             fprintf(stderr, "\n");
 
         }
 
+
     private:
         bool is_all_yes_;
         bool up_to_date;
-        map<node_id, response_type> table;
+        std::map<node_id, response_type> table;
         ScatFormWavvy* scat_form_ptr;
 
         void calculate_all_yes() {
             // in the case of sinks ..
-            fprintf(stderr, "I m in %s \n", __FUNCTION__);
+            // put all of these comments surrounded by #if debug
+            // fprintf(stderr, "I m in %s \n", __FUNCTION__);
 
             if (table.empty()) { up_to_date = true; is_all_yes_ = true;  return; }
 
-            for (map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+            for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
                  it ++ ) {
                 if (it->second != YES) { is_all_yes_ = false; up_to_date = true; return; }
             }
@@ -266,14 +283,17 @@ private:
 
 
 private:
-    nvect all_neighbors, up_neighbors, down_neighbors, unnecessary_neighbors;
-    // node_id id_;
+    nvect all_neighbors, unnecessary_neighbors;
+    nvect up_neighbors_p1, down_neighbors_p1;
+    nvect up_neighbors_p2, down_neighbors_p2;
+
+
     status my_status;
     int current_iteration;
     role my_role;
     float finishing_time;
 
-    map<node_id, node_id> candidate_table;
+    std::map<node_id, node_id> candidate_table;
     yes_no_map yes_no_table;
 
     // Handling busy states and connections:

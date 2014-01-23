@@ -5,9 +5,8 @@
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
-
 #include "scat_wavvy_bsf_utilities.h"
-using namespace std;
+
 
 struct wavvy_neighbor;
 class wavvy_neighbor_list;
@@ -35,10 +34,15 @@ public:
         return (this->id == in.id);
     }
 
+    wavvy_neighbor& operator=(const wavvy_neighbor& in) {
+        this->id = in.id;
+        this->contacted = in. contacted;
+        return *this;
+    }
+
 private:
     node_id id;
     bool contacted;
-
 
 };
 
@@ -67,7 +71,7 @@ public:
     inline unsigned int size() const { return neighbors.size(); }
 
     inline bool is_in(const node_id& u) {
-        for (vector<wavvy_neighbor>::iterator it = neighbors.begin();
+        for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin();
              it != neighbors.end(); it++) {
             if (it->get_id() == u) return true;
         }
@@ -76,12 +80,13 @@ public:
     }
 
 
-    inline void mark_contacted_by_node_id(const node_id& u);
-    inline void mark_contacted_all();
+    inline void mark_contacted_by_node_id(const node_id& u, bool c);
+    inline void mark_contacted_all(bool c);
+
     inline bool is_contacted_by_index(const unsigned int& index);
     inline bool is_contacted_by_node_id(const node_id& u);
     inline bool is_all_contacted() {
-        for (vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
+        for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
              it ++) {
             if (! it->get_contacted()) return false;
         }
@@ -91,7 +96,7 @@ public:
     void print() {
 
         fprintf(stderr, "neighbors list: ");
-        for (vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
+        for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
              it ++) {
             fprintf(stderr, "(%d, %s)", it->get_id(), bool2str(it->get_contacted()));
         }
@@ -100,12 +105,19 @@ public:
     }
 
 
+    // the = operator (copy).
+    wavvy_neighbor_list& operator=(const wavvy_neighbor_list& in) {
+        this->neighbors = in.neighbors;
+        this->current_neighbor = in.current_neighbor;
+        return *this;
+    }
+
 private:
     inline bool is_in_range(const unsigned int& index) { return (index < neighbors.size()); }
 
 
 private:
-    vector<wavvy_neighbor> neighbors;
+    std::vector<wavvy_neighbor> neighbors;
     unsigned int current_neighbor;
 };
 
@@ -119,7 +131,7 @@ void wavvy_neighbor_list::insert_node(const wavvy_neighbor &w) {
 
 void wavvy_neighbor_list::delete_node(const node_id& u) {
 
-    vector<wavvy_neighbor>::iterator it = find(neighbors.begin(), neighbors.end(), u);
+    std::vector<wavvy_neighbor>::iterator it = find(neighbors.begin(), neighbors.end(), u);
     if (it != neighbors.end()) { neighbors.erase(it); }
     else {
         fprintf(stderr, "error in %s .. trying to delete an inexisting node %d \n",
@@ -130,7 +142,7 @@ void wavvy_neighbor_list::delete_node(const node_id& u) {
 
 wavvy_neighbor& wavvy_neighbor_list::find_node_by_id(const node_id& u) {
 
-    vector<wavvy_neighbor>::iterator it = find(neighbors.begin(), neighbors.end(), u);
+    std::vector<wavvy_neighbor>::iterator it = find(neighbors.begin(), neighbors.end(), u);
     if (it == neighbors.end()) {
         fprintf(stderr, "error in %s .. node %d does not exist in current neighbor list\n",
                 __FUNCTION__, u);
@@ -181,13 +193,13 @@ wavvy_neighbor& wavvy_neighbor_list::next_not_contacted() {
 
 }
 
-void wavvy_neighbor_list::mark_contacted_by_node_id(const node_id& u) {
-    this->find_node_by_id(u).set_contacted(true);
+void wavvy_neighbor_list::mark_contacted_by_node_id(const node_id& u, bool c) {
+    this->find_node_by_id(u).set_contacted(c);
 }
 
-void wavvy_neighbor_list::mark_contacted_all() {
-    for (vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
-         it ++ )  it->set_contacted(false);
+void wavvy_neighbor_list::mark_contacted_all(bool c) {
+    for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
+         it ++ )  it->set_contacted(c);
 }
 
 bool wavvy_neighbor_list::is_contacted_by_index(const unsigned int& index) {

@@ -66,6 +66,24 @@ inline bool ScatFormWavvy::trace_node(){
 void ScatFormWavvy::init_scat_formation_algorithm() {
     this->all_neighbors.sort();
     this->seperate_all_neighbors();     // up and down neighbors are sorted as a result.
+
+    this->up_neighbors_p2 = this->up_neighbors_p1;
+    this->down_neighbors_p2 = this->down_neighbors_p1;
+
+
+    this->up_neighbors_p1.mark_contacted_all(false);
+    this->up_neighbors_p2.mark_contacted_all(false);
+    this->down_neighbors_p1.mark_contacted_all(false);
+    this->down_neighbors_p2.mark_contacted_all(false);
+
+
+
+    fprintf(stderr, "node %d in %s: down_neighbors_p2: ", this->id_, state_str(this->my_status));
+    down_neighbors_p2.print();
+
+    fprintf(stderr, "node %d in %s: down_neighbors_p1: ", this->id_, state_str(this->my_status));
+    down_neighbors_p1.print();
+
 }
 
 // main function ..
@@ -108,9 +126,12 @@ void ScatFormWavvy::change_status(status new_stat) {
         break;
 
     case DOWN_TO_UP_WAIT:
-        // initiation of the -YO phase .. (mark all neighbors as contacted).
-        down_neighbors.mark_contacted_all();
-        up_neighbors.mark_contacted_all();
+        // initiation of the -YO phase
+
+
+        // We don't use these anymore .. we use up_neighbors_p1, down_neighbors_p2 ..
+        // down_neighbors_p1.mark_contacted_all();
+        // up_neighbors_p1.mark_contacted_all();
 
         ex_round_messages();
         break;
@@ -156,7 +177,7 @@ void ScatFormWavvy::ex_round_messages() {
     case UP_TO_DOWN_WAIT:
 
         // if (! is_all_contacted()) {
-        if (! up_neighbors.is_all_contacted()) {
+        if (! up_neighbors_p1.is_all_contacted()) {
             wait_in_page_scan();
 
 
@@ -168,10 +189,10 @@ void ScatFormWavvy::ex_round_messages() {
         break;
 
     case UP_TO_DOWN_ACTION:
-        if (! down_neighbors.is_all_contacted()) {
+        if (! down_neighbors_p1.is_all_contacted()) {
 
             // connect_page(find_promising_receiver());
-            connect_page(down_neighbors.next_not_contacted().get_id());
+            connect_page(down_neighbors_p1.next_not_contacted().get_id());
         } else {
             // change_status(TERMINATE);
             change_status(DOWN_TO_UP_WAIT);
@@ -181,10 +202,16 @@ void ScatFormWavvy::ex_round_messages() {
         break ;
 
     case DOWN_TO_UP_WAIT:
-        if (! down_neighbors.is_all_contacted()) {
 
-            fprintf(stderr, "down_neighbors(%d): ", this->id_);
-            down_neighbors.print();
+        fprintf(stderr, "node %d in %s: down_neighbors_p2: ", this->id_, state_str(this->my_status));
+        down_neighbors_p2.print();
+
+        fprintf(stderr, "node %d in %s: down_neighbors_p1: ", this->id_, state_str(this->my_status));
+        down_neighbors_p1.print();
+
+        if (! down_neighbors_p2.is_all_contacted()) {
+
+
 
             wait_in_page_scan();
 
@@ -195,21 +222,16 @@ void ScatFormWavvy::ex_round_messages() {
         break;
 
     case DOWN_TO_UP_ACTION:
-        if (! up_neighbors.is_all_contacted()) {
-            connect_page(up_neighbors.next_not_contacted().get_id());
+        fprintf(stderr, "node %d in %s: up_neighbors_p2: ", this->id_, state_str(this->my_status));
+        up_neighbors_p2.print();
+
+        if (! up_neighbors_p2.is_all_contacted()) {
+            connect_page(up_neighbors_p2.next_not_contacted().get_id());
         } else {
 
+            handle_iteration_end();                 // the sophisticated version.
 
-            if (get_node_type() == SOURCE) {
-                if (yes_no_table.is_all_yes()) {
-                    fprintf(stderr, "node %d is a surviving this phase .. \n", this->id_);
-                } else {
-                    fprintf(stderr, "node %d is not surviving this phase ..\n", this->id_);
-                    yes_no_table.print();
-                }
-            }
-
-            change_status(TERMINATE);
+            // change_status(TERMINATE);            // simple version ..
         }
         break;
 
@@ -221,7 +243,89 @@ void ScatFormWavvy::ex_round_messages() {
     }
 }
 
+void ScatFormWavvy::handle_iteration_end() {
 
+
+    // handle the end of an iteration ..
+    // which nodes survived ..
+    // -- wait for up_neighbors_p1, up_neighbors_p2, down_neighbors_p1, down_neighbors_p2
+    // -- we can't reach this level if those are not already marked.
+    // to be all contacted ..
+    // flip edges as necessary ..
+    // increase iteration ..
+
+    if ( !(up_neighbors_p1.is_all_contacted() &&
+           up_neighbors_p2.is_all_contacted() &&
+           down_neighbors_p1.is_all_contacted() &&
+           down_neighbors_p2.is_all_contacted())
+         ) {
+
+        fprintf(stderr, "error in %d .. some neighbors has not been contacted twice .. how come?",
+                this->id_);
+    }
+
+
+    if (get_node_type() == SOURCE) {
+        if (yes_no_table.is_all_yes()) {
+            fprintf(stderr, "node %d is a surviving iteration %d .. \n",
+                    this->id_, this->current_iteration);
+        } else {
+            fprintf(stderr, "node %d is not surviving iteration %d ..\n",
+                    this->id_, this->current_iteration);
+            yes_no_table.print();
+        }
+    }
+
+
+    // read the yes_no_table ..  (flipping edges!)
+    // if received a no from a neighbor .. then flip it!
+    response_type tt;
+    node_id tid;
+    vector<node_id> in_to_out_nodes;
+
+    for (unsigned int i = 0; i < down_neighbors_p1.size(); i++) {
+
+        tid = this->down_neighbors_p1.find_node_by_index(i).get_id();
+        tt = yes_no_table.get_value(tid);
+
+        if (tt == NO) {
+            // flip_neighbor_direction(tid, IN_TO_OUT);
+            fprintf(stderr, "*** node %d will consider %d as in to out neighbors ... ",
+                    this->id_, tid);
+            in_to_out_nodes.push_back(tid);
+
+        } else if (tt == NOT_KNOWN) {
+            fprintf(stderr, "error in %d yes_no_map[%d] = NOT_KNOWN at %s \n",
+                    this->id_, tid, __FUNCTION__);
+            abort();
+        }
+    }
+
+    // do the actual flipping ..
+    for (int i = 0; i < in_to_out_nodes.size(); i ++) {
+        flip_neighbor_direction(in_to_out_nodes[i], IN_TO_OUT);
+    }
+
+    this->up_neighbors_p2 = this->up_neighbors_p1;
+    this->down_neighbors_p2 = this->down_neighbors_p1;
+
+    this->up_neighbors_p1.mark_contacted_all(false);
+    this->down_neighbors_p1.mark_contacted_all(false);
+    this->up_neighbors_p2.mark_contacted_all(false);
+    this->down_neighbors_p2.mark_contacted_all(false);
+
+    current_iteration ++;
+
+    // .. when to terminate ..
+    // now .. we just should switch to terminate.
+    change_status(TERMINATE);
+
+    // for future: ..
+    // check whether function terminated or not ..
+    // TODO: test with as many scenarios as possible ..
+    // This is the most important part of the algorithm ..
+
+}
 
 void ScatFormWavvy::connected(bd_addr_t rmt) {
     Scheduler & s = Scheduler::instance();
@@ -367,7 +471,7 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
     if (! rcvd_msg->reply) {
 
         yes_no_table.set_value(rmt, rcvd_msg->yes_no ? YES : NO);
-        down_neighbors.mark_contacted_by_node_id(rmt);
+        down_neighbors_p2.mark_contacted_by_node_id(rmt, true);
 
         if (trace_node()) {
             fprintf(stderr, "node %d marked node %d as contacted and set its yes_no value to %s\n",
@@ -388,7 +492,7 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
 
     } else {
 
-        up_neighbors.mark_contacted_by_node_id(rmt);
+        up_neighbors_p2.mark_contacted_by_node_id(rmt, true);
         disconnect_page(rmt);
 
         if (trace_node()) {
@@ -414,7 +518,7 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
         // TODO here - we assume that everything will be correct .. perhaps
         // we should check the existence of rmt before ..
         candidate_table[rmt] = rcvd_msg->candidate_id;
-        up_neighbors.mark_contacted_by_node_id(rmt);
+        up_neighbors_p1.mark_contacted_by_node_id(rmt, true);
 
         if (trace_node()) {
             fprintf(stderr, "node %d added %d to its candidates and marked %d contacted .. \n",
@@ -434,7 +538,7 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
     } else {
 
         // mark_neighbor_contacted(down_neighbors, rmt);
-        down_neighbors.mark_contacted_by_node_id(rmt);
+        down_neighbors_p1.mark_contacted_by_node_id(rmt, true);
         disconnect_page(rmt);
 
         if (trace_node()) {
@@ -507,9 +611,9 @@ void ScatFormWavvy::seperate_all_neighbors() {
         const wavvy_neighbor& temp_node = all_neighbors[i];
 
         if (temp_node.get_id() > this->id_) {
-            up_neighbors.insert_node(temp_node);
+            up_neighbors_p1.insert_node(temp_node);
         } else if (temp_node.get_id() < this->id_) {
-            down_neighbors.insert_node(temp_node);
+            down_neighbors_p1.insert_node(temp_node);
         } else {
             fprintf(stderr, "error(%d): neighbor %d has my id!\n",
                     this->id_, temp_node.get_id());
@@ -528,12 +632,12 @@ void ScatFormWavvy::flip_neighbor_direction(node_id u, const char* code) {
 
     nvect *from, *to;
 
-    if (strcmp(code, "out-to-in")) {
-        from = &down_neighbors;
-        to = &up_neighbors;
-    } else if (strcmp(code, "in-to-out")) {
-        from = &up_neighbors;
-        to = &down_neighbors;
+    if (strcmp(code, OUT_TO_IN )) {
+        from = &down_neighbors_p1;
+        to = &up_neighbors_p1;
+    } else if (strcmp(code, IN_TO_OUT)) {
+        from = &up_neighbors_p1;
+        to = &down_neighbors_p1;
     } else {
         fprintf(stdout, "error: code %s in %s is wrong \n", code, __FUNCTION__);
     }

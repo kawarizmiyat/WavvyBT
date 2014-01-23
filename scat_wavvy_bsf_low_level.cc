@@ -150,6 +150,7 @@ void ScatFormWavvy::linkDetached(bd_addr_t rmt, uchar reason) {
         }
     }
 }
+
 void ScatFormWavvy::recv(Packet * p, int rmt) {
 
     Scheduler & s = Scheduler::instance();
@@ -179,3 +180,67 @@ void ScatFormWavvy::recv(Packet * p, int rmt) {
     recv_handler(msg, rmt);
 
 }
+
+
+void ScatFormWavvy::page_scan_completed() {
+  Scheduler & s = Scheduler::instance();
+  s.cancel(&watchDogEv_);
+  s.schedule(&timer_ , &watchDogEv_ , WATCH_DOG_TIMER );
+  fprintf(stdout, "%d is in page_scan_completed()\n", id_ );
+}
+
+
+void ScatFormWavvy::_pageNotSucced(int rmt) {
+  // The lower layers do not notify that the connection was faild, and the higher
+  // layers considers that it was established succefully; so we remove the connection
+  Scheduler & s = Scheduler::instance();
+
+  // Change the offset here;
+  node_->bb_->recalculateNInfo(rmt, 1);
+
+  // ALL THESE can be put into one function, cleanForConnection
+  if ((node_->l2cap_->lookupChannel(PSM_BNEP, rmt))) {
+    node_->l2cap_->removeChannel((node_->l2cap_->lookupChannel(PSM_BNEP, rmt)));
+  } else {
+    fprintf(stderr, "*** Error: channel is not there , no removeChannel() \n");
+    abort();
+  }
+
+  if (( node_->bnep_->lookupConnection(rmt))) {
+    node_->bnep_->removeConnection(node_->bnep_->lookupConnection(rmt));
+  }
+
+  fprintf(stderr, "**** Warning: %d PAGE was not succed with %d at %f \n",id_, rmt, s.clock());
+  ex_round_messages();
+
+}
+
+/*
+void ScatFormWavvy::_changeOffsetValue(int id) {
+  BTNode *wk = node_->lookupNode(id);
+  Bd_info *bd_temp;
+  int my_clock = node_->bb_->clkn_;
+  int clock, offset, slave_clock;
+
+  // CHANGGING the offsets and the clocks
+  if (!wk) {
+    fprintf(stderr, "*** Error: THERE must be an error, NO node %d \n", id);
+    abort();
+  } else {
+    bd_temp = node_->lmp_->lookupBdinfo(id);
+    if (!bd_temp){
+      fprintf(stderr, "*** Error: There must be an error , No neighbor %d \n", id);
+      abort();
+
+    } else {
+      clock = bd_temp->clkn_;
+      offset = bd_temp->offset_;
+
+      slave_clock = (wk->bb_->clkn_ - 3) & 0xFFFFFFFC;
+      bd_temp->clkn_ = slave_clock;
+      bd_temp->offset_ = slave_clock -(my_clock & 0xFFFFFFFC);
+
+    }
+  }
+}
+*/
