@@ -26,7 +26,7 @@ using namespace std;
 #define WATCH_DOG_TIMER 10.0					// original (i.e. with collusion it was 0.5)
 
 #define DEBUG   1
-
+#define TEST    0
 
 class ScatFormWavvy;
 
@@ -42,13 +42,14 @@ struct MsgCandidate {
 
 
 struct MsgResult {
-    MsgResult(node_id _id, bool _yes_no, bool _reply) :
+    MsgResult(node_id _id, bool _yes_no, bool _kill, bool _reply) :
         max_candidate_id(_id),
-        yes_no(_yes_no),
+        yes_no(_yes_no), kill(_kill),
         reply(_reply) {}
 
     node_id max_candidate_id;
     bool yes_no;
+    bool kill;
     bool reply;
 };
 
@@ -70,7 +71,7 @@ class ScatFormWavvy : public ScatFormator {
 
     enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
-    enum response_type {YES, NO, NOT_KNOWN};
+    enum response_type {YES, NO, KILL, NOT_KNOWN};
 
 
 
@@ -295,6 +296,18 @@ private:
 
     std::map<node_id, node_id> candidate_table;
     yes_no_map yes_no_table;
+
+    std::vector<node_id> kill_me_neighbors;     // a kill message is received from the up
+                                                // is sent from a down_neighbor to an up_neighbor.
+                                                // if the down_neighbor received the same candidate
+    // candidate value from more than one up_neighbor, then it send to all of them a kill except
+    // the one with maximum id among them ..
+    // Note that this is applied to each candidate .. [i.e., (10,4),(10,3),(10,5), (8,6), (7,7)
+    //                                              ==> (10,5), (8,6), (7,7)].
+    // if a v sent/received a kill neighbnor to/from u, then:
+    //              kill_me_neighbors(v) = u
+    //              kill_me_neighbors(u) = v
+
 
     // Handling busy states and connections:
     Event busyDelayEv_, waitingDiscEv_, watchDogEv_;
