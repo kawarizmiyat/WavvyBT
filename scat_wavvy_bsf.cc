@@ -18,7 +18,8 @@ ScatFormWavvy::ScatFormWavvy(BTNode *n):
     current_iteration(0),
     my_role(NONE),
     finishing_time (0),
-    yes_no_table(this){
+    parent_id(-1),
+    yes_no_table(this) {
 
 
     // Bluetooth layers configuration:
@@ -100,10 +101,6 @@ void ScatFormWavvy::_main() {
     change_status(UP_TO_DOWN_WAIT);
 }
 
-// handle the change of the status - initialize the node for that.
-// TODO - some states may require shuffling the neighbor list ..
-// TODO - a data structure that get randomly - efficiently
-//          (that is, insert, fetch, fetch random element) efficiently.
 void ScatFormWavvy::change_status(status new_stat) {
 
     if (trace_node()) {
@@ -233,12 +230,11 @@ void ScatFormWavvy::init_state_down_to_up_action() {
     // relationship in a special vector. .
     //
     // rules:
-    pair<node_id, node_id> child_parent(-1,-1);
+
     node_id y;
     if (onle_one_yes_neighbor(y)) {
         if (down_neighbors_p1.size() == 0 || rcvd_kill_f_all_d_neighbors()) {
-            child_parent.first = this->id_;
-            child_parent.second = y;
+            parent_id = y ;
         }
     }
 }
@@ -498,10 +494,12 @@ void ScatFormWavvy::initiate_connected_down_to_up_action(bd_addr_t rmt) {
     response_type tt = up_neighbors_yes_no_table.get_value(rmt);
     bool yes_no_cond = (tt == YES);
     bool kill_cond = (tt == KILL);
+    bool child_parent_cond = (parent_id != -1);
 
     MsgResult result_msg(max_candidate,
                          yes_no_cond,
                          kill_cond,
+                         child_parent_cond,
                          false);
 
     sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
@@ -556,6 +554,9 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
         yes_no_table.set_value(rmt, rcvd_msg->yes_no ? YES : NO);
         down_neighbors_p2.mark_contacted_by_node_id(rmt, true);
 
+        if (rcvd_msg->is_child) {
+            children_id.push_back(rmt);
+        }
 
         if (rcvd_msg->kill) {
             this->kill_me_neighbors.push_back(rmt);

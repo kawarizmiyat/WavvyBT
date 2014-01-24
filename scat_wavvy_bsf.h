@@ -42,14 +42,17 @@ struct MsgCandidate {
 
 
 struct MsgResult {
-    MsgResult(node_id _id, bool _yes_no, bool _kill, bool _reply) :
+    MsgResult(node_id _id, bool _yes_no, bool _kill, bool _cp, bool _reply) :
         max_candidate_id(_id),
-        yes_no(_yes_no), kill(_kill),
+        yes_no(_yes_no),
+        kill(_kill),
+        child_parent(_cp),
         reply(_reply) {}
 
     node_id max_candidate_id;
     bool yes_no;
     bool kill;
+    bool child_parent;
     bool reply;
 };
 
@@ -225,6 +228,9 @@ private:
     float finishing_time;
 
     std::map<node_id, node_id> candidate_table;
+    // pair<node_id, node_id> child_parent;            // first: child, second: parent.
+    node_id parent_id;
+    vector<node_id> children_id;
 
     yes_no_map yes_no_table;        // we wont need this anymore.
     yes_no_map down_neighbors_yes_no_table, up_neighbors_yes_no_table;
