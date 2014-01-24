@@ -4,6 +4,9 @@
 // This can be known on-the-fly!
 // How?
 
+
+
+
 #include "scat_wavvy_bsf.h"
 
 
@@ -128,18 +131,14 @@ void ScatFormWavvy::change_status(status new_stat) {
         break;
 
     case DOWN_TO_UP_WAIT:
-        // initiation of the -YO phase
-
-
-        // We don't use these anymore .. we use up_neighbors_p1, down_neighbors_p2 ..
-        // down_neighbors_p1.mark_contacted_all();
-        // up_neighbors_p1.mark_contacted_all();
 
         ex_round_messages();
         break;
 
     case DOWN_TO_UP_ACTION:
 
+        // initiate the state.
+        init_state_down_to_up_action();
         ex_round_messages();
         break;
 
@@ -159,7 +158,95 @@ void ScatFormWavvy::change_status(status new_stat) {
 
 }
 
+void ScatFormWavvy::build_up_neighbors_yes_no_table(node_id rmt, node_id max_candidate) {
+    // the candidate that rmt forwarded.
+    node_id the_candidate = candidate_table[rmt];
 
+    // Q1: is rmt the maximum forwarder of candidate the_candidate?
+    node_id max_forwarder = rmt;
+    for (map<node_id,node_id>::iterator it = candidate_table.begin();
+         it != candidate_table.end();
+         it++) {
+
+        if (it->second == the_candidate && it->first > rmt) {
+            max_forwarder = it->first;
+        }
+    }
+
+    // if answer of Q1 is yes!
+    bool yes_no_cond = (this->down_neighbors_yes_no_table.is_none_NO()) &&
+            (the_candidate == max_candidate);
+    bool kill_cond = (max_foreward != rmt);
+
+    if (yes_no_cond) {
+        this->yes_no_table.set_value(rmt, YES);
+    } else {
+        this->yes_no_table.set_value(rmt, NO);
+    }
+
+    // note that KILL overrides YES and NO.
+    if (kill_cond) {
+        this->kill_me_neighbors.push_back(rmt);
+        this->yes_no_table.set_value(rmt, KILL);
+    }
+}
+
+void ScatFormWavvy::build_up_neighbors_yes_no_table() {
+
+
+    node_id max_candidate = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
+    for (unsigned int i = 0; i < up_neighbors_p1.size(); i++) {
+        build_up_neighbors_yes_no_table(up_neighbors_p1.find_node_by_index(i), max_candidate);
+    }
+
+}
+
+void ScatFormWavvy::init_state_down_to_up_action() {
+
+
+
+
+    // YES is sent to the max neighbor that sent the maximum candidate.
+    // NO is sent to the max neighbor that sent any other candidate.
+    // every other neighbor is given KILL.
+
+
+    // additional structures --
+    // down_neighbors_yes_no_table, up_neigbhors_yes_no_table.
+    // down_neighbors_yes_no_table -- built as a result of rcvd messages from down
+    //                              -- neighbors.
+    // up_neighhnors_yes_no_table .. built in this stage.
+    build_up_neighbors_yes_no_table();
+
+
+    // what shall be done in this function then?
+    // That is, how do we know whether we should terminat or not?
+
+    // rules:
+    // if a node u has only one up_neighbor v as yes, while everything else is kill (or just don't exist)
+    // then: (u,v) becomes yes+terminated.
+    //        v: should take the new
+
+
+    // Ok: so, each node except the root, shall sent a "your_child" command to only one
+    // up_neighbor. This has the same action of "kill" - except that it stores the parent-child
+    // relationship in a special vector. .
+    //
+    // rules:
+    pair<node_id, node_id> child_parent(-1,-1);
+    node_id y;
+    if (onle_one_yes_neighbor(y)) {
+        if (down_neighbors_p1.size() == 0 || rcvd_kill_f_all_d_neighbors()) {
+            child_parent.first = this->id_;
+            child_parent.second = y;
+        }
+    }
+}
+
+// check all down_neighbors_p1 .. if received KILL or YOUR_CHILD
+bool ScatFormWavvy::rcvd_kill_f_all_d_neighbors() {
+    return true;
+}
 
 // the procedure of contacting all neighbors in a given state.
 void ScatFormWavvy::ex_round_messages() {
@@ -205,15 +292,8 @@ void ScatFormWavvy::ex_round_messages() {
 
     case DOWN_TO_UP_WAIT:
 
-        fprintf(stderr, "node %d in %s: down_neighbors_p2: ", this->id_, state_str(this->my_status));
-        down_neighbors_p2.print();
-
-        fprintf(stderr, "node %d in %s: down_neighbors_p1: ", this->id_, state_str(this->my_status));
-        down_neighbors_p1.print();
 
         if (! down_neighbors_p2.is_all_contacted()) {
-
-
 
             wait_in_page_scan();
 
@@ -224,16 +304,11 @@ void ScatFormWavvy::ex_round_messages() {
         break;
 
     case DOWN_TO_UP_ACTION:
-        fprintf(stderr, "node %d in %s: up_neighbors_p2: ", this->id_, state_str(this->my_status));
-        up_neighbors_p2.print();
 
         if (! up_neighbors_p2.is_all_contacted()) {
             connect_page(up_neighbors_p2.next_not_contacted().get_id());
         } else {
-
             handle_iteration_end();                 // the sophisticated version.
-
-            // change_status(TERMINATE);            // simple version ..
         }
         break;
 
@@ -416,73 +491,22 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
         abort();
     }
 }
-// do once you are connect ..
+
+
 void ScatFormWavvy::initiate_connected_down_to_up_action(bd_addr_t rmt) {
-    // action depends on whether you are a sink or intermediate ..
-    // you should not reach this state if you are a source ..
 
-    // if not all the received responses (results) true ..
-    node_id max_candidate = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
+    response_type tt = up_neighbors_yes_no_table.get_value(rmt);
+    bool yes_no_cond = (tt == YES);
+    bool kill_cond = (tt == KILL);
 
-    if (trace_node()) {
-        fprintf(stderr, "is_all_yes(%d): %s .. candidate_table[%d] = %d \n", this->id_,
-                bool2str(this->yes_no_table.is_all_yes()), rmt, candidate_table[rmt]);
-    }
-
-
-    node_id the_candidate = candidate_table[rmt];
-    node_id max_forwarder = rmt;
-    for (map<node_id,node_id>::iterator it = candidate_table.begin();
-         it != candidate_table.end();
-         it++) {
-
-        if (it->second == the_candidate && it->first > rmt) {
-            max_forwarder = it->first;
-        }
-    }
-
-    bool yes_no_cond = (this->yes_no_table.is_all_yes()) && (candidate_table[rmt] == max_candidate);
-    bool kill_cond = (max_foreward != rmt);
     MsgResult result_msg(max_candidate,
                          yes_no_cond,
                          kill_cond,
                          false);
 
-    if (yes_no_cond) {
-        this->yes_no_table.set_value(rmt, YES);
-    } else {
-        this->yes_no_table.set_value(rmt, NO);
-    }
-
-    // note that KILL overrides YES and NO.
-    if (kill_cond) {
-        this->kill_me_neighbors.push_back(rmt);
-        this->yes_no_table.set_value(rmt, KILL);
-    }
-
-
-
-
-    // debug:
-    // all_results_yes return true if sink ..
-    // if all_results_yes .. then  yes_no = (candidate_table[rmt] == max_candidate).
-    // if ! all_results_yes .. then yes_no = false.
-
-    if (trace_node()) {
-        fprintf(stderr, "node %d sent msg_result to %d (reply:%s, yes_no:%s,"
-                "kill:%s, max_candidate:%d)\n",
-
-                this->id_, rmt,
-                bool2str(result_msg.reply),
-                bool2str(result_msg.yes_no),
-                bool2str(result_msg.kill),
-                result_msg.max_candidate_id);
-    }
-
     sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
+
 }
-
-
 
 
 void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {

@@ -173,6 +173,7 @@ protected:
 
     // handling states;
     void change_status(status s);
+    void init_state_down_to_up_action();
 
     // handling connected:
     void initiate_connected_up_to_down_action(bd_addr_t rmt);
@@ -208,78 +209,7 @@ private:
     // honestly .. I m just trying to see if this appraoch is useful.
     // to better organize the code ..
 
-    struct yes_no_map {
-    public:
-
-
-        yes_no_map(ScatFormWavvy* _scat_form_ptr):
-            is_all_yes_(true),
-            up_to_date(true),
-            scat_form_ptr(_scat_form_ptr)
-        {}
-
-        void set_value(node_id rmt, response_type value) {
-            table[rmt] = value;
-            up_to_date = false;
-        }
-
-
-        // Note: I am trying to access id_ here .. let's see if it is in the
-        // scope of the struct .. - well, if I don't inherit ScatWavvy, then I can't
-        // because id_ is not a static variable.
-        //
-        response_type get_value(node_id rmt) {
-            std::map<node_id, response_type>::iterator it;
-            if ((it = table.find(rmt)) != table.end()) return it->second;
-
-            fprintf(stderr, "error in %d trying to access an inexisting value yes_no_table[%d] \n",
-                    scat_form_ptr->id_, rmt);
-            abort();
-        }
-
-        void reset() {
-            for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
-                 it ++ ) it->second = NOT_KNOWN;
-        }
-
-        bool is_all_yes() {
-            if (! up_to_date) calculate_all_yes();
-            return is_all_yes_;
-        }
-
-        void print() {
-            fprintf(stderr, "yes_no_t[%d]: ", scat_form_ptr->id_);
-            for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
-                 it ++ )
-                fprintf(stderr, "(%d,%s) ", it->first, scat_form_ptr->response2str(it->second));
-            fprintf(stderr, "\n");
-
-        }
-
-
-    private:
-        bool is_all_yes_;
-        bool up_to_date;
-        std::map<node_id, response_type> table;
-        ScatFormWavvy* scat_form_ptr;
-
-        void calculate_all_yes() {
-            // in the case of sinks ..
-            // put all of these comments surrounded by #if debug
-            // fprintf(stderr, "I m in %s \n", __FUNCTION__);
-
-            if (table.empty()) { up_to_date = true; is_all_yes_ = true;  return; }
-
-            for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
-                 it ++ ) {
-                if (it->second != YES) { is_all_yes_ = false; up_to_date = true; return; }
-            }
-            is_all_yes_ = true;
-            up_to_date = true;
-            return;
-        }
-
-    };
+    struct yes_no_map;
 
 
 
@@ -295,7 +225,10 @@ private:
     float finishing_time;
 
     std::map<node_id, node_id> candidate_table;
-    yes_no_map yes_no_table;
+
+    yes_no_map yes_no_table;        // we wont need this anymore.
+    yes_no_map down_neighbors_yes_no_table, up_neighbors_yes_no_table;
+
 
     std::vector<node_id> kill_me_neighbors;     // a kill message is received from the up
                                                 // is sent from a down_neighbor to an up_neighbor.
@@ -370,16 +303,83 @@ inline void ScatFormWavvy::_expectingDisconnection(int rmt) {
 
 
 
-// We don't need this anymore ..
-// TODO test me please ..
-/* inline void ScatFormWavvy::mark_neighbor_contacted(nvect& list, int n_id) {
-    nvect_iter it = list.find(n_id);
-    if (it != list.end()) {
-        it->second.contacted = true;
+
+// Test me please.
+struct ScatFormWavvy::yes_no_map {
+public:
+
+
+    yes_no_map(ScatFormWavvy* _scat_form_ptr):
+        is_none_NO_(true),
+        up_to_date(true),
+        scat_form_ptr(_scat_form_ptr)
+    {}
+
+    void set_value(node_id rmt, response_type value) {
+        table[rmt] = value;
+        up_to_date = false;
     }
-} */
 
 
+    // Note: I am trying to access id_ here .. let's see if it is in the
+    // scope of the struct .. - well, if I don't inherit ScatWavvy, then I can't
+    // because id_ is not a static variable.
+    //
+    response_type get_value(node_id rmt) {
+        std::map<node_id, response_type>::iterator it;
+        if ((it = table.find(rmt)) != table.end()) return it->second;
+
+        fprintf(stderr, "error in %d trying to access an inexisting value yes_no_table[%d] \n",
+                scat_form_ptr->id_, rmt);
+        abort();
+    }
+
+    void reset() {
+        for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+             it ++ ) it->second = NOT_KNOWN;
+    }
+
+    bool is_none_NO() {
+        if (! up_to_date) calculate_none_NO();
+        return is_none_NO_;
+    }
+
+    void print() {
+        fprintf(stderr, "yes_no_t[%d]: ", scat_form_ptr->id_);
+        for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+             it ++ )
+            fprintf(stderr, "(%d,%s) ", it->first, scat_form_ptr->response2str(it->second));
+        fprintf(stderr, "\n");
+
+    }
+
+
+private:
+    bool is_none_NO_;
+    bool up_to_date;
+    std::map<node_id, response_type> table;
+    ScatFormWavvy* scat_form_ptr;
+
+    void calculate_none_NO() {
+        // in the case of sinks ..
+        if (table.empty()) { up_to_date = true; is_none_NO_ = true;  return; }
+
+        for (std::map<node_id, response_type>::iterator it = table.begin();
+             it != table.end();
+             it ++ ) {
+
+            if (it->second != YES || it->second != KILL) {
+                is_none_NO_ = false;
+                up_to_date = true;
+                return;
+            }
+        }
+        is_none_NO_ = true;
+        up_to_date = true;
+        return;
+    }
+
+};
 
 
 
