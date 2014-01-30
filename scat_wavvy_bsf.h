@@ -46,13 +46,13 @@ struct MsgResult {
         max_candidate_id(_id),
         yes_no(_yes_no),
         kill(_kill),
-        child_parent(_cp),
+        is_child(_cp),
         reply(_reply) {}
 
     node_id max_candidate_id;
     bool yes_no;
     bool kill;
-    bool child_parent;
+    bool is_child;
     bool reply;
 };
 
@@ -70,11 +70,10 @@ class ScatFormWavvy : public ScatFormator {
 
 
     enum msgCmd {CmdCandidate, CmdForward, CmdResult};
-
-
+    enum response_type {YES, NO, KILL, YOUR_CHILD, NOT_KNOWN};
     enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
-    enum response_type {YES, NO, KILL, NOT_KNOWN};
+
 
 
 
@@ -82,6 +81,8 @@ class ScatFormWavvy : public ScatFormator {
         switch(t) {
         case YES: return "YES";
         case NO: return "NO";
+        case KILL: return "KILL";
+        case YOUR_CHILD: return "YOUR_CHILD";
         case NOT_KNOWN: return "NOT_KNOWN";
         default:
             fprintf(stderr, "unrecognized response_type .. ");
@@ -149,9 +150,6 @@ protected:
     constexpr static const char* OUT_TO_IN = "out-to-in";
     constexpr static const char* IN_TO_OUT = "in-to-out";
 
-    void flip_neighbor_direction(node_id u, const char* code);
-    void make_unnecessary_neighbor(node_id u, nvect& neighbors_list);
-    void seperate_all_neighbors();
 
     void _main();
     void ex_round_messages();
@@ -183,7 +181,19 @@ protected:
     void initiate_connected_down_to_up_action(bd_addr_t rmt);
 
 
+
+
 private:
+
+    // specific to wavvy ..
+    void flip_neighbor_direction(node_id u, const char* code);
+    void make_unnecessary_neighbor(node_id u, nvect& neighbors_list);
+    void seperate_all_neighbors();
+    void build_up_neighbors_yes_no_table();
+    void build_up_neighbors_yes_no_table(node_id rmt, node_id max_candidate);
+    bool rcvd_kill_or_your_child_f_all_d_neighbors();
+    // bool only_one_yes_neighbor(node_id& the_yes_neighbor);
+
 
     // wait for, cancel, and make connection ..
     inline void wait_in_page_scan();
@@ -209,10 +219,62 @@ private:
 
 private:
 
-    // honestly .. I m just trying to see if this appraoch is useful.
-    // to better organize the code ..
+    struct yes_no_map {
+    public:
 
-    struct yes_no_map;
+
+        yes_no_map(ScatFormWavvy* _scat_form_ptr):
+            is_none_NO_(true),
+            up_to_date(true),
+            scat_form_ptr(_scat_form_ptr)
+        {}
+
+
+
+        inline void set_value(node_id rmt, response_type value);
+        inline response_type get_value(node_id rmt);
+        inline void reset();
+        inline bool is_none_NO();
+
+        inline bool is_all_kill_or_your_child() {
+            for (auto it = table.begin(); it != table.end(); it++) {
+                if (it->second != KILL && it->second != YOUR_CHILD) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        inline bool only_one_yes_neighbor(node_id& the_yes_neighbor) {
+            bool already_set = false;
+
+            for (auto it = table.begin(); it != table.end(); it++) {
+                if (it->second == YES) {
+                    if (! already_set) { the_yes_neighbor = it->first; already_set = true; }
+                    else { the_yes_neighbor = -1; return false; }
+                }
+            }
+
+            return true;
+        }
+
+        inline void print();
+
+
+        //
+    private:
+        void calculate_none_NO();
+
+
+    private:
+        bool is_none_NO_;
+        bool up_to_date;
+        std::map<node_id, response_type> table;
+        ScatFormWavvy* scat_form_ptr;
+
+
+    };
+
 
 
 
@@ -230,9 +292,8 @@ private:
     std::map<node_id, node_id> candidate_table;
     // pair<node_id, node_id> child_parent;            // first: child, second: parent.
     node_id parent_id;
-    vector<node_id> children_id;
+    std::vector<node_id> children_id;
 
-    yes_no_map yes_no_table;        // we wont need this anymore.
     yes_no_map down_neighbors_yes_no_table, up_neighbors_yes_no_table;
 
 
@@ -307,85 +368,65 @@ inline void ScatFormWavvy::_expectingDisconnection(int rmt) {
 }
 
 
+inline void ScatFormWavvy::yes_no_map::calculate_none_NO() {
+    // in the case of sinks ..
+    if (table.empty()) { up_to_date = true; is_none_NO_ = true;  return; }
+
+    for (std::map<node_id, response_type>::iterator it = table.begin();
+         it != table.end();
+         it ++ ) {
 
 
-
-// Test me please.
-struct ScatFormWavvy::yes_no_map {
-public:
-
-
-    yes_no_map(ScatFormWavvy* _scat_form_ptr):
-        is_none_NO_(true),
-        up_to_date(true),
-        scat_form_ptr(_scat_form_ptr)
-    {}
-
-    void set_value(node_id rmt, response_type value) {
-        table[rmt] = value;
-        up_to_date = false;
-    }
-
-
-    // Note: I am trying to access id_ here .. let's see if it is in the
-    // scope of the struct .. - well, if I don't inherit ScatWavvy, then I can't
-    // because id_ is not a static variable.
-    //
-    response_type get_value(node_id rmt) {
-        std::map<node_id, response_type>::iterator it;
-        if ((it = table.find(rmt)) != table.end()) return it->second;
-
-        fprintf(stderr, "error in %d trying to access an inexisting value yes_no_table[%d] \n",
-                scat_form_ptr->id_, rmt);
-        abort();
-    }
-
-    void reset() {
-        for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
-             it ++ ) it->second = NOT_KNOWN;
-    }
-
-    bool is_none_NO() {
-        if (! up_to_date) calculate_none_NO();
-        return is_none_NO_;
-    }
-
-    void print() {
-        fprintf(stderr, "yes_no_t[%d]: ", scat_form_ptr->id_);
-        for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
-             it ++ )
-            fprintf(stderr, "(%d,%s) ", it->first, scat_form_ptr->response2str(it->second));
-        fprintf(stderr, "\n");
-
-    }
-
-
-private:
-    bool is_none_NO_;
-    bool up_to_date;
-    std::map<node_id, response_type> table;
-    ScatFormWavvy* scat_form_ptr;
-
-    void calculate_none_NO() {
-        // in the case of sinks ..
-        if (table.empty()) { up_to_date = true; is_none_NO_ = true;  return; }
-
-        for (std::map<node_id, response_type>::iterator it = table.begin();
-             it != table.end();
-             it ++ ) {
-
-            if (it->second != YES || it->second != KILL) {
-                is_none_NO_ = false;
-                up_to_date = true;
-                return;
-            }
+        if (it->second == NO) {
+            is_none_NO_ = false;
+            up_to_date = true;
+            return;
         }
-        is_none_NO_ = true;
-        up_to_date = true;
-        return;
     }
+    is_none_NO_ = true;
+    up_to_date = true;
+    return;
+}
 
-};
+
+inline void ScatFormWavvy::yes_no_map::set_value(node_id rmt, response_type value) {
+    table[rmt] = value;
+    up_to_date = false;
+}
+
+inline ScatFormWavvy::response_type  ScatFormWavvy::yes_no_map::get_value(node_id rmt) {
+    std::map<node_id, response_type>::iterator it;
+    if ((it = table.find(rmt)) != table.end()) return it->second;
+
+    fprintf(stderr, "error in %d trying to access an inexisting value yes_no_table[%d] \n",
+            scat_form_ptr->id_, rmt);
+    abort();
+}
+
+
+inline void ScatFormWavvy::yes_no_map::reset() {
+    for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+         it ++ ) it->second = NOT_KNOWN;
+}
+
+inline bool ScatFormWavvy::yes_no_map::is_none_NO() {
+    if (! up_to_date) calculate_none_NO();
+    return is_none_NO_;
+}
+
+
+// Note: I am trying to access id_ here .. let's see if it is in the
+// scope of the struct .. - well, if I don't inherit ScatWavvy, then I can't
+// because id_ is not a static variable.
+inline void ScatFormWavvy::yes_no_map::print() {
+    fprintf(stderr, "yes_no_t[%d]: ", scat_form_ptr->id_);
+    for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+         it ++ )
+        fprintf(stderr, "(%d,%s) ", it->first, scat_form_ptr->response2str(it->second));
+    fprintf(stderr, "\n");
+
+}
+
 
 
 

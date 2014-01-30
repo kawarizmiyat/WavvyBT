@@ -19,7 +19,8 @@ ScatFormWavvy::ScatFormWavvy(BTNode *n):
     my_role(NONE),
     finishing_time (0),
     parent_id(-1),
-    yes_no_table(this) {
+    down_neighbors_yes_no_table(this),
+    up_neighbors_yes_no_table(this) {
 
 
     // Bluetooth layers configuration:
@@ -155,7 +156,15 @@ void ScatFormWavvy::change_status(status new_stat) {
 
 }
 
+
 void ScatFormWavvy::build_up_neighbors_yes_no_table(node_id rmt, node_id max_candidate) {
+
+
+
+    if (trace_node()) {
+        fprintf(stderr, "node %d is building the yes_no value of %d \n", this->id_, rmt);
+    }
+
     // the candidate that rmt forwarded.
     node_id the_candidate = candidate_table[rmt];
 
@@ -173,18 +182,23 @@ void ScatFormWavvy::build_up_neighbors_yes_no_table(node_id rmt, node_id max_can
     // if answer of Q1 is yes!
     bool yes_no_cond = (this->down_neighbors_yes_no_table.is_none_NO()) &&
             (the_candidate == max_candidate);
-    bool kill_cond = (max_foreward != rmt);
+    bool kill_cond = (max_forwarder != rmt);
 
     if (yes_no_cond) {
-        this->yes_no_table.set_value(rmt, YES);
+        this->up_neighbors_yes_no_table.set_value(rmt, YES);
     } else {
-        this->yes_no_table.set_value(rmt, NO);
+        this->up_neighbors_yes_no_table.set_value(rmt, NO);
     }
 
     // note that KILL overrides YES and NO.
     if (kill_cond) {
         this->kill_me_neighbors.push_back(rmt);
-        this->yes_no_table.set_value(rmt, KILL);
+        this->up_neighbors_yes_no_table.set_value(rmt, KILL);
+    }
+
+    if (trace_node()) {
+        fprintf(stderr, "after exec. %s .. up_neighbor_yes_no_table[%d] = %s \n",
+                __FUNCTION__, rmt, response2str(this->up_neighbors_yes_no_table.get_value(rmt)));
     }
 }
 
@@ -193,7 +207,8 @@ void ScatFormWavvy::build_up_neighbors_yes_no_table() {
 
     node_id max_candidate = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
     for (unsigned int i = 0; i < up_neighbors_p1.size(); i++) {
-        build_up_neighbors_yes_no_table(up_neighbors_p1.find_node_by_index(i), max_candidate);
+
+        build_up_neighbors_yes_no_table(up_neighbors_p1.find_node_by_index(i).get_id(), max_candidate);
     }
 
 }
@@ -231,18 +246,32 @@ void ScatFormWavvy::init_state_down_to_up_action() {
     //
     // rules:
 
-    node_id y;
-    if (onle_one_yes_neighbor(y)) {
-        if (down_neighbors_p1.size() == 0 || rcvd_kill_f_all_d_neighbors()) {
-            parent_id = y ;
+    node_id the_yes_neighbor;
+    if (up_neighbors_yes_no_table.only_one_yes_neighbor(the_yes_neighbor)) {
+        if (down_neighbors_p1.size() == 0 || rcvd_kill_or_your_child_f_all_d_neighbors()) {
+            parent_id = the_yes_neighbor ;
+            this->up_neighbors_yes_no_table.set_value(the_yes_neighbor, YOUR_CHILD);
+
+            if (trace_node()) {
+                fprintf(stderr, "node %d set the flag of %d as YOUR_CHILD since it has no down_neighbors in this "
+                        "iteration and it received kill or your_child from all down_neighbors\n",
+                        this->id_, the_yes_neighbor);
+            }
         }
     }
 }
 
 // check all down_neighbors_p1 .. if received KILL or YOUR_CHILD
-bool ScatFormWavvy::rcvd_kill_f_all_d_neighbors() {
-    return true;
+bool ScatFormWavvy::rcvd_kill_or_your_child_f_all_d_neighbors() {
+    return down_neighbors_yes_no_table.is_all_kill_or_your_child();
 }
+
+// check if there is only one neighbor that sent YES. return its ide in the_yes_neighbor.
+// bool ScatFormWavvy::only_one_yes_neighbor(node_id& the_yes_neighbor) {
+
+//    return up_neighbors_yes_no_table.only_one_yes_neighbor(the_yes_neighbor);
+
+// }
 
 // the procedure of contacting all neighbors in a given state.
 void ScatFormWavvy::ex_round_messages() {
@@ -339,34 +368,43 @@ void ScatFormWavvy::handle_iteration_end() {
 
 
     if (get_node_type() == SOURCE) {
-        if (yes_no_table.is_all_yes()) {
-            fprintf(stderr, "node %d is a surviving iteration %d .. \n",
+        if (down_neighbors_yes_no_table.is_none_NO()) {
+            fprintf(stderr, "node %d is surviving iteration %d .. \n",
                     this->id_, this->current_iteration);
         } else {
             fprintf(stderr, "node %d is not surviving iteration %d ..\n",
                     this->id_, this->current_iteration);
-            yes_no_table.print();
+            down_neighbors_yes_no_table.print();
         }
     }
 
-
+    // ********************************************************************************
+    // ********************************************************************************
+    // TODO: this is not done yet ..
+    //
     // read the yes_no_table ..  (flipping edges!)
     // if received a no from a neighbor .. then flip it!
     response_type tt;
     node_id tid;
-    vector<node_id> in_to_out_nodes;
     nvect temp_up, temp_down;
+
+
+    fprintf(stderr, "*******************************\n");
 
     for (unsigned int i = 0; i < down_neighbors_p1.size(); i++) {
 
         tid = this->down_neighbors_p1.find_node_by_index(i).get_id();
-        tt = yes_no_table.get_value(tid);
+        tt = down_neighbors_yes_no_table.get_value(tid);
+
+        if (trace_node()) {
+            fprintf(stderr, "node %d is checking the yes/no state of %d = %s \n", this->id_, tid, response2str(tt));
+        }
 
 
-        // we do nothing when kill ..
+        // we do nothing when kill or your_child.
         if (tt == NO) {
             temp_up.insert_node(tid);
-            fprintf(stderr, "*** NO: node %d will consider %d as in to out neighbors ... ",
+            fprintf(stderr, "*** NO: node %d will consider %d as in-to-out neighbors ... ",
                     this->id_, tid);
 
         } else if (tt == YES) {
@@ -382,10 +420,14 @@ void ScatFormWavvy::handle_iteration_end() {
     for (unsigned int i = 0; i < up_neighbors_p1.size(); i++) {
 
         tid = this->up_neighbors_p1.find_node_by_index(i).get_id();
-        tt = yes_no_table.get_value(tid);
+        tt = up_neighbors_yes_no_table.get_value(tid);
 
 
-        // we do nothing when kill ..
+        if (trace_node()) {
+            fprintf(stderr, "node %d is checking the yes/no state of %d = %s \n", this->id_, tid, response2str(tt));
+        }
+
+        // we do nothing when kill or your_child
         if (tt == NO) {
             temp_down.insert_node(tid);
             fprintf(stderr, "*** NO: node %d will consider %d as in to in neighbors ... ",
@@ -408,11 +450,29 @@ void ScatFormWavvy::handle_iteration_end() {
     this->up_neighbors_p2 = this->up_neighbors_p1;
     this->down_neighbors_p2 = this->down_neighbors_p1;
 
-    current_iteration ++;
+    if (trace_node()) {
+
+        fprintf(stderr, "the new up_neighbors of (%d) : ", this->id_);
+        this->up_neighbors_p1.print();
+        fprintf(stderr, "the new down_neighbors of (%d) : ", this->id_);
+        this->down_neighbors_p1.print();
+
+    }
+
+
 
     // .. when to terminate ..
     // now .. we just should switch to terminate.
-    change_status(TERMINATE);
+
+    if (down_neighbors_p1.size() == 0 && up_neighbors_p1.size() == 0) {
+        if (trace_node()) { fprintf(stderr, "*** node %d decides to terminate the algorithm at iteration %d \n",
+                                    this->id_, current_iteration); }
+        change_status(TERMINATE);
+    } else {
+        current_iteration ++;
+        if (trace_node()) { fprintf(stderr, "*** node %d starting a new iteration %d \n", this->id_, current_iteration); }
+        change_status(UP_TO_DOWN_WAIT);
+    }
 
     // for future: ..
     // check whether function terminated or not ..
@@ -491,16 +551,37 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
 
 void ScatFormWavvy::initiate_connected_down_to_up_action(bd_addr_t rmt) {
 
+
+
+
+    node_id max_candidate = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
     response_type tt = up_neighbors_yes_no_table.get_value(rmt);
-    bool yes_no_cond = (tt == YES);
+    bool yes_no_cond = (tt == YES || tt == YOUR_CHILD);
     bool kill_cond = (tt == KILL);
-    bool child_parent_cond = (parent_id != -1);
+    // bool child_parent_cond = (parent_id != -1);
+    bool child_parent_cond = (tt == YOUR_CHILD);
+
+    if (trace_node()) {
+        fprintf(stderr, "node %d preparing a cmd_result to %d with yes_no status = %s \n",
+                this->id_, rmt, response2str(tt));
+    }
 
     MsgResult result_msg(max_candidate,
                          yes_no_cond,
                          kill_cond,
                          child_parent_cond,
                          false);
+
+
+    if (trace_node()) {
+
+        fprintf(stderr, "node %d send cmd_result message to %d with (mc: %d, y_n:%s, k:%s, cp:%s, reply:%s\n",
+                this->id_, rmt, result_msg.max_candidate_id,
+                bool2str(result_msg.yes_no),
+                bool2str(result_msg.kill),
+                bool2str(result_msg.is_child),
+                bool2str(result_msg.reply));
+    }
 
     sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
 
@@ -541,40 +622,49 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
 
     if (trace_node()) {
         fprintf(stderr,
-                "node %d received cmd_result msg from %d:(reply:%s, yes_no:%s, kill:%s"
+                "node %d received cmd_result msg from %d:(reply:%s, yes_no:%s, kill:%s, your_child:%s, "
                 "max_cand_id:%d) \n",
                 this->id_, rmt, bool2str(rcvd_msg->reply),
                 bool2str(rcvd_msg->yes_no),
                 bool2str(rcvd_msg->kill),
+                bool2str(rcvd_msg->is_child),
                 rcvd_msg->max_candidate_id);
     }
 
     if (! rcvd_msg->reply) {
 
-        yes_no_table.set_value(rmt, rcvd_msg->yes_no ? YES : NO);
+        down_neighbors_yes_no_table.set_value(rmt, rcvd_msg->yes_no ? YES : NO);
         down_neighbors_p2.mark_contacted_by_node_id(rmt, true);
 
-        if (rcvd_msg->is_child) {
-            children_id.push_back(rmt);
-        }
 
         if (rcvd_msg->kill) {
             this->kill_me_neighbors.push_back(rmt);
-            yes_no_table.set_value(rmt, KILL);
+            down_neighbors_yes_no_table.set_value(rmt, KILL);
+        }
+
+
+        if (rcvd_msg->is_child) {
+            children_id.push_back(rmt);
+            down_neighbors_yes_no_table.set_value(rmt, YOUR_CHILD);
         }
 
         if (trace_node()) {
             fprintf(stderr, "node %d marked node %d as contacted and set its yes_no value to %s\n",
-                    this->id_, rmt, response2str(yes_no_table.get_value(rmt)));
+                    this->id_, rmt,
+                    response2str(down_neighbors_yes_no_table.get_value(rmt)));
         }
 
 
-        MsgResult result_msg(this->id_, false, true);
+        // we only care here about the reply=tre flag .. every other flag is of no importance.
+        // see the else part of this if-statement.
+        MsgResult result_msg(this->id_, false,  false, false, true);
         if (trace_node()) {
-            fprintf(stderr, "node %d sent msg_result to %d (reply:%s, max: candid_id:%d)\n",
+            fprintf(stderr, "node %d sent msg_result to %d (reply:%s, yes_no:%s, kill: %s, your_child: %s, max_candid_id:%d)\n",
                     this->id_, rmt,
                     bool2str(result_msg.reply),
                     bool2str(result_msg.yes_no),
+                    bool2str(result_msg.kill),
+                    bool2str(result_msg.is_child),
                     result_msg.max_candidate_id);
         }
         sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
@@ -605,8 +695,6 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
 
     if (! rcvd_msg->reply) {
 
-        // TODO here - we assume that everything will be correct .. perhaps
-        // we should check the existence of rmt before ..
         candidate_table[rmt] = rcvd_msg->candidate_id;
         up_neighbors_p1.mark_contacted_by_node_id(rmt, true);
 
@@ -695,7 +783,7 @@ void ScatFormWavvy::print_result_in_row(FILE* cfPtr) {
 
 
 
-// TODO test ..
+
 void ScatFormWavvy::seperate_all_neighbors() {
     for (unsigned int i = 0; i < all_neighbors.size(); i++) {
         const wavvy_neighbor& temp_node = all_neighbors[i];
