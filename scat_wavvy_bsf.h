@@ -31,29 +31,40 @@ using namespace std;
 class ScatFormWavvy;
 
 
+struct MsgBusy {
+    MsgBusy(bool b) : busy(b) {}
+    bool busy;
+};
+
 struct MsgCandidate {
 
-    MsgCandidate(node_id _id) : candidate_id(_id) { }
-    MsgCandidate(node_id _id, bool _reply) : candidate_id(_id), reply(_reply) { }
+    // MsgCandidate(node_id _id) : candidate_id(_id) { }
+    MsgCandidate(node_id _id, bool _reply, unsigned int _iter) :
+        candidate_id(_id),
+        reply(_reply),
+        iteration(_iter) { }
 
     node_id candidate_id;
     bool reply;
+    unsigned int iteration;
 };
 
 
 struct MsgResult {
-    MsgResult(node_id _id, bool _yes_no, bool _kill, bool _cp, bool _reply) :
+    MsgResult(node_id _id, bool _yes_no, bool _kill, bool _cp, bool _reply, unsigned int _iter) :
         max_candidate_id(_id),
         yes_no(_yes_no),
         kill(_kill),
         is_child(_cp),
-        reply(_reply) {}
+        reply(_reply),
+        iteration(_iter){}
 
     node_id max_candidate_id;
     bool yes_no;
     bool kill;
     bool is_child;
     bool reply;
+    unsigned int iteration;
 };
 
 // TODO: statuses .. need to be handled in a better way ..
@@ -69,7 +80,7 @@ class ScatFormWavvy : public ScatFormator {
                  TERMINATE};
 
 
-    enum msgCmd {CmdCandidate, CmdForward, CmdResult};
+    enum msgCmd {CmdCandidate, CmdResult, CmdBusy};
     enum response_type {YES, NO, KILL, YOUR_CHILD, NOT_KNOWN};
     enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
@@ -159,6 +170,8 @@ protected:
     void recv_handler(SFmsg* msg, int rmt);
     void recv_handler_cmd_candidate(SFmsg* msg, int rmt);
     void recv_handler_cmd_result(SFmsg* msg, int rmt);
+    void recv_handler_cmd_busy(SFmsg* msg, int rmt);
+    void send_busy_msg(int rmt);
 
 
     // These functions are made to avoid errors in communications..
@@ -233,7 +246,7 @@ private:
 
         inline void set_value(node_id rmt, response_type value);
         inline response_type get_value(node_id rmt);
-        inline void reset();
+        inline void clear();
         inline bool is_none_NO();
 
         inline bool is_all_kill_or_your_child() {
@@ -246,6 +259,29 @@ private:
         }
 
         inline bool only_one_yes_neighbor(node_id& the_yes_neighbor) {
+            // this is only one yes, and everything else is either KILL or YOUR_CHILD.
+            unsigned int count_yes = 0;
+            for (auto it = table.begin(); it != table.end(); it++) {
+                fprintf(stderr, "checking states of %d : %s \n", it->first, response2str(it->second));
+
+                if (it->second == YES) { count_yes ++; the_yes_neighbor = it->first;}
+                else if (it->second == NO) {
+                    the_yes_neighbor = -1;
+                    return false;
+                } else if (it->second == NOT_KNOWN) {
+                    fprintf(stderr, "error: most likely there is an error in %s \n", __FUNCTION__);
+                    abort();
+                }
+            }
+
+            if (count_yes == 1) {
+                return true;
+            } else {
+                the_yes_neighbor = -1;
+                return false;
+            }
+
+            /*
             bool already_set = false;
 
             for (auto it = table.begin(); it != table.end(); it++) {
@@ -256,6 +292,7 @@ private:
             }
 
             return true;
+            */
         }
 
         inline void print();
@@ -285,7 +322,7 @@ private:
 
 
     status my_status;
-    int current_iteration;
+    unsigned int current_iteration;
     role my_role;
     float finishing_time;
 
@@ -404,9 +441,13 @@ inline ScatFormWavvy::response_type  ScatFormWavvy::yes_no_map::get_value(node_i
 }
 
 
-inline void ScatFormWavvy::yes_no_map::reset() {
-    for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
-         it ++ ) it->second = NOT_KNOWN;
+inline void ScatFormWavvy::yes_no_map::clear() {
+//    for (std::map<node_id, response_type>::iterator it = table.begin(); it != table.end();
+//         it ++ ) it->second = NOT_KNOWN;
+
+    table.erase(table.begin(), table.end());
+    up_to_date = true;
+    is_none_NO_ = true;
 }
 
 inline bool ScatFormWavvy::yes_no_map::is_none_NO() {

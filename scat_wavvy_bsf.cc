@@ -1,3 +1,4 @@
+
 // how to terminate the algorithm?
 // well, basically, you need to know if you have
 // 0 down_neighbors, and 1 up_neighbors.
@@ -67,7 +68,7 @@ void ScatFormWavvy::_addNeighbor(node_id id) {
 
 // tracer:
 inline bool ScatFormWavvy::trace_node(){
-    return true;            // trace every node.
+    return (true);            // trace every node.
 }
 
 void ScatFormWavvy::init_scat_formation_algorithm() {
@@ -246,7 +247,10 @@ void ScatFormWavvy::init_state_down_to_up_action() {
     //
     // rules:
 
-    node_id the_yes_neighbor;
+    fprintf(stderr, "up_neighbors_yes_no_table[%d]: ", this->id_);
+    up_neighbors_yes_no_table.print();
+
+    node_id the_yes_neighbor = -1;
     if (up_neighbors_yes_no_table.only_one_yes_neighbor(the_yes_neighbor)) {
         if (down_neighbors_p1.size() == 0 || rcvd_kill_or_your_child_f_all_d_neighbors()) {
             parent_id = the_yes_neighbor ;
@@ -338,7 +342,7 @@ void ScatFormWavvy::ex_round_messages() {
         break;
 
     default:
-        fprintf(stderr, "**** Error: %d unsupported case %d \n", this->id_, state_str(this->my_status));
+        fprintf(stderr, "**** Error: %d unsupported case %s \n", this->id_, state_str(this->my_status));
         abort();
         break;
 
@@ -430,7 +434,7 @@ void ScatFormWavvy::handle_iteration_end() {
         // we do nothing when kill or your_child
         if (tt == NO) {
             temp_down.insert_node(tid);
-            fprintf(stderr, "*** NO: node %d will consider %d as in to in neighbors ... ",
+            fprintf(stderr, "*** NO: node %d will consider %d as in to in neighbors ..\n",
                     this->id_, tid);
 
         } else if (tt == YES) {
@@ -463,13 +467,16 @@ void ScatFormWavvy::handle_iteration_end() {
 
     // .. when to terminate ..
     // now .. we just should switch to terminate.
-
     if (down_neighbors_p1.size() == 0 && up_neighbors_p1.size() == 0) {
         if (trace_node()) { fprintf(stderr, "*** node %d decides to terminate the algorithm at iteration %d \n",
                                     this->id_, current_iteration); }
         change_status(TERMINATE);
     } else {
         current_iteration ++;
+        up_neighbors_yes_no_table.clear();
+        down_neighbors_yes_no_table.clear();
+        candidate_table.erase(candidate_table.begin(), candidate_table.end());
+
         if (trace_node()) { fprintf(stderr, "*** node %d starting a new iteration %d \n", this->id_, current_iteration); }
         change_status(UP_TO_DOWN_WAIT);
     }
@@ -516,13 +523,14 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
 
     node_type n_type = get_node_type();
     if (n_type == SOURCE) {
-        MsgCandidate candid_msg(this->id_, false);
+        MsgCandidate candid_msg(this->id_, false, this->current_iteration);
 
 
         if (trace_node()) {
-            fprintf(stderr, "source node %d sent msg_candidate to %d (reply:%s, candid_id:%d)\n",
+            fprintf(stderr, "source node %d sent msg_candidate to %d (reply:%s, candid_id:%d, iter:%d)\n",
                     this->id_, rmt, bool2str(candid_msg.reply),
-                    candid_msg.candidate_id);
+                    candid_msg.candidate_id,
+                    candid_msg.iteration);
         }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
@@ -533,12 +541,13 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
         // Q should we select a different name instead of CmdCandidate?
         // A: No, we don't need that .. the reaction to this message is similar to
         // the one above ..
-        MsgCandidate candid_msg(max_candidate, false);
+        MsgCandidate candid_msg(max_candidate, false, this->current_iteration);
 
         if (trace_node()) {
-            fprintf(stderr, "intermediate node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d)\n",
+            fprintf(stderr, "intermediate node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d, iter:%d)\n",
                     this->id_, rmt, bool2str(candid_msg.reply),
-                    candid_msg.candidate_id);
+                    candid_msg.candidate_id,
+                    candid_msg.iteration);
         }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
@@ -570,17 +579,19 @@ void ScatFormWavvy::initiate_connected_down_to_up_action(bd_addr_t rmt) {
                          yes_no_cond,
                          kill_cond,
                          child_parent_cond,
-                         false);
+                         false,
+                         this->current_iteration);
 
 
     if (trace_node()) {
 
-        fprintf(stderr, "node %d send cmd_result message to %d with (mc: %d, y_n:%s, k:%s, cp:%s, reply:%s\n",
+        fprintf(stderr, "node %d send cmd_result message to %d with (mc: %d, y_n:%s, k:%s, cp:%s, reply:%s, iter:%d)\n",
                 this->id_, rmt, result_msg.max_candidate_id,
                 bool2str(result_msg.yes_no),
                 bool2str(result_msg.kill),
                 bool2str(result_msg.is_child),
-                bool2str(result_msg.reply));
+                bool2str(result_msg.reply),
+                this->current_iteration);
     }
 
     sendMsg(CmdResult, (uchar *) &result_msg, sizeof(MsgResult), rmt, rmt);
@@ -608,11 +619,35 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
         recv_handler_cmd_result(msg, rmt);
         break;
 
+    case CmdBusy:
+        recv_handler_cmd_busy(msg, rmt);
+        break;
+
     default:
         fprintf(stderr, "*** Error at %d: unsupported type of messages \n", id_);
         abort();
         break;
     }
+}
+
+void ScatFormWavvy::recv_handler_cmd_busy(SFmsg* msg, int rmt) {
+    if (trace_node()) {
+        fprintf(stderr, "node %d received a cmd_busy from %d\n", rmt);
+    }
+    // simply disconnet the link - id: must be a master in this case, since reply is sent only by slaves.
+    disconnect_page(rmt);
+
+}
+
+void ScatFormWavvy::send_busy_msg(int rmt) {
+    // prepare a busy message .. and return.
+    MsgBusy busy_msg(true);
+    if (trace_node()) {
+        fprintf(stderr, "busy: node %d is sending busy to %d since iteration does not match \n",
+                this->id_, rmt);
+    }
+
+    sendMsg(CmdBusy, (uchar *) &busy_msg, sizeof(MsgBusy), rmt, rmt);
 }
 
 void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
@@ -623,13 +658,22 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
     if (trace_node()) {
         fprintf(stderr,
                 "node %d received cmd_result msg from %d:(reply:%s, yes_no:%s, kill:%s, your_child:%s, "
-                "max_cand_id:%d) \n",
+                "max_cand_id:%d, iter: %d) \n",
                 this->id_, rmt, bool2str(rcvd_msg->reply),
                 bool2str(rcvd_msg->yes_no),
                 bool2str(rcvd_msg->kill),
                 bool2str(rcvd_msg->is_child),
-                rcvd_msg->max_candidate_id);
+                rcvd_msg->max_candidate_id,
+                rcvd_msg->iteration);
     }
+
+
+    // busy cases:
+    if (rcvd_msg->iteration != this->current_iteration) {
+        send_busy_msg(rmt);
+        return;
+    }
+
 
     if (! rcvd_msg->reply) {
 
@@ -657,7 +701,7 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
 
         // we only care here about the reply=tre flag .. every other flag is of no importance.
         // see the else part of this if-statement.
-        MsgResult result_msg(this->id_, false,  false, false, true);
+        MsgResult result_msg(this->id_, false,  false, false, true, this->current_iteration);
         if (trace_node()) {
             fprintf(stderr, "node %d sent msg_result to %d (reply:%s, yes_no:%s, kill: %s, your_child: %s, max_candid_id:%d)\n",
                     this->id_, rmt,
@@ -693,6 +737,13 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
                 this->id_, rmt, bool2str(rcvd_msg->reply), rcvd_msg->candidate_id);
     }
 
+
+    // busy cases:
+    if (rcvd_msg->iteration != this->current_iteration) {
+        send_busy_msg(rmt);
+        return;
+    }
+
     if (! rcvd_msg->reply) {
 
         candidate_table[rmt] = rcvd_msg->candidate_id;
@@ -705,7 +756,7 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
 
         // mark_neighbor_contacted(up_neighbors, rmt);
 
-        MsgCandidate candid_msg(this->id_, true);
+        MsgCandidate candid_msg(this->id_, true, this->current_iteration);
         if (trace_node()) {
             fprintf(stderr, "node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d)\n",
                     this->id_, rmt, bool2str(candid_msg.reply),
@@ -757,12 +808,19 @@ void ScatFormWavvy::print_all(FILE* cfPtr) {
 void ScatFormWavvy::print_result_in_row(FILE* cfPtr) {
 
 
+    cfPtr = stderr;
 
     fprintf(cfPtr, "<id> %d ", id_);
 
     //TODO: how to handle the masters and slaves of a given node. ..
     // create a function in ScatFormWavvy .. make_master(node_id), make_slave(node_id) ..
     //
+
+    fprintf(cfPtr, "<parent> %d", this->parent_id);
+
+    fprintf(cfPtr, "<children> ");
+    for (auto i = 0; i < this->children_id.size(); i++)
+        fprintf(cfPtr, "%d ", this->children_id[i]);
 
     fprintf(cfPtr, "<iterations> %d ", this->current_iteration + 1);
 
