@@ -733,9 +733,9 @@ void ScatFormWavvy::set_busy_cond_if_required(const node_id& rmt) {
     };
 
 
-    // if (nlist_ptr->next_not_contacted_id() == rmt) {
+    if (nlist_ptr->next_not_contacted_id() == rmt) {
         this->busyCond_ = true;
-    // }
+    }
 
 
 

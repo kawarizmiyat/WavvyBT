@@ -61,8 +61,8 @@ public:
     inline wavvy_neighbor& find_node_by_index(const unsigned int& ind);    // find node by index.
     inline wavvy_neighbor& operator[](const unsigned int& ind);            // find node by index.
     inline wavvy_neighbor& get_random_node();
-    inline wavvy_neighbor& next();
-    inline wavvy_neighbor& next_not_contacted();
+    inline wavvy_neighbor next();
+    inline wavvy_neighbor next_not_contacted();
     inline const node_id& next_not_contacted_id();
 
     inline void sort() {
@@ -191,19 +191,19 @@ wavvy_neighbor& wavvy_neighbor_list::get_random_node() {
     return neighbors[rand() % neighbors.size()];
 }
 
-wavvy_neighbor& wavvy_neighbor_list::next() {
+wavvy_neighbor wavvy_neighbor_list::next() {
     if (! neighbors.size()) {
         fprintf(stderr, "error in %s .. neighbors list is empty .. \n", __FUNCTION__);
         abort();
     }
 
-    wavvy_neighbor& c = neighbors[current_neighbor];
+    wavvy_neighbor c = neighbors[current_neighbor];
     current_neighbor = (current_neighbor + 1) % neighbors.size();
     return c;
 }
 
-wavvy_neighbor& wavvy_neighbor_list::next_not_contacted() {
-    wavvy_neighbor& c = this->next();
+wavvy_neighbor wavvy_neighbor_list::next_not_contacted() {
+    wavvy_neighbor c = this->next();
     while (c.get_contacted()) { c = this->next(); }
     return c;
 
