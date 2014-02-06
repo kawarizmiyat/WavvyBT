@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 
 #include "../bnep.h"
 #include "../lmp.h"
@@ -39,12 +40,23 @@ struct MsgBusy {
 struct MsgCandidate {
 
     // MsgCandidate(node_id _id) : candidate_id(_id) { }
-    MsgCandidate(node_id _id, bool _reply, unsigned int _iter) :
+    MsgCandidate(node_id _id, weight_type _wv, bool _reply, unsigned int _iter) :
         candidate_id(_id),
+        candidate_weight_val(_wv),
         reply(_reply),
         iteration(_iter) { }
 
+
+    std::string to_string() {
+        char msg_output[256];
+        sprintf(msg_output, "(c_id: %d, c_wv: %d, iter:%d, rep:%s)", candidate_id, candidate_weight_val,
+                iteration,
+                bool2str(reply));
+        return std::string(msg_output);
+    }
+
     node_id candidate_id;
+    weight_type candidate_weight_val;
     bool reply;
     unsigned int iteration;
 };
@@ -58,6 +70,7 @@ struct MsgResult {
         is_child(_cp),
         reply(_reply),
         iteration(_iter){}
+
 
     node_id max_candidate_id;
     bool yes_no;
@@ -73,6 +86,8 @@ class ScatFormWavvy : public ScatFormator {
 
 
     enum status {INIT,
+                 INIT_SCAT_ALG_WAIT,
+                 INIT_SCAT_ALG_ACTION,
                  UP_TO_DOWN_WAIT,
                  UP_TO_DOWN_ACTION,
                  DOWN_TO_UP_WAIT,
@@ -106,6 +121,8 @@ class ScatFormWavvy : public ScatFormator {
     static const char *state_str(status st) {
         static const char *const str[] = {
             "INIT",
+            "INIT_SCAT_ALG_WAIT",
+            "INIT_SCAT_ALG_ACTION",
             "UP_TO_DOWN_WAIT",
             "UP_TO_DOWN_ACTION",
             "DOWN_TO_UP_WAIT",
@@ -156,6 +173,7 @@ protected:
 
     // initialization before main.
     void init_scat_formation_algorithm();
+    void finalize_init_scat_formation_algorithm();
 
     // constants used with flip_neighbor_direction ..
     constexpr static const char* OUT_TO_IN = "out-to-in";
@@ -320,17 +338,19 @@ private:
 
 
 private:
-    nvect all_neighbors, unnecessary_neighbors;
+    nvect all_neighbors;
     nvect up_neighbors_p1, down_neighbors_p1;
     nvect up_neighbors_p2, down_neighbors_p2;
-
+    nvect *smaller_neighbors, *larger_neighbors;
 
     status my_status;
     unsigned int current_iteration;
     role my_role;
     float finishing_time;
+    weight my_weight;
 
-    std::map<node_id, node_id> candidate_table;
+
+    std::map<node_id, wavvy_weight> candidate_table;
     // pair<node_id, node_id> child_parent;            // first: child, second: parent.
     node_id parent_id;
     std::vector<node_id> children_id;

@@ -67,6 +67,26 @@ inline bool ScatFormWavvy::trace_node(){
 
 void ScatFormWavvy::init_scat_formation_algorithm() {
     this->all_neighbors.sort();
+    this->my_weight(0, this->id_);       //0: so that it is fixed ..
+
+    // dynamically allocate smaller_neighbors .. and large neighbors.
+    // and create them.
+    smaller_neighbors = new nvect();
+    larger_neighbors = new nvect();
+
+    for (auto i = 0; i < all_neighbors.size(); i++) {
+        node_id temp_id = all_neighbors.find_node_by_index(i).get_id();
+        if (temp_id > this->id_) {
+            larger_neighbors->insert_node(temp_id);
+        } else {
+            smaller_neighbors->insert_node(temp_id);
+        }
+    }
+
+}
+
+void ScatFormWavvy::finalize_init_scat_formation_algorithm() {
+
     this->seperate_all_neighbors();     // up and down neighbors are sorted as a result.
 
     this->up_neighbors_p2 = this->up_neighbors_p1;
@@ -77,17 +97,18 @@ void ScatFormWavvy::init_scat_formation_algorithm() {
     this->up_neighbors_p2.mark_contacted_all(false);
     this->down_neighbors_p1.mark_contacted_all(false);
     this->down_neighbors_p2.mark_contacted_all(false);
-
 }
 
 // main function ..
 void ScatFormWavvy::_main() {
 
     init_scat_formation_algorithm();    // here: all nodes are already inserted into
+    change_status(INIT_SCAT_ALG_WAIT);
 
-
-    change_status(UP_TO_DOWN_WAIT);
+    // change_status(UP_TO_DOWN_WAIT);
 }
+
+
 
 void ScatFormWavvy::change_status(status new_stat) {
 
@@ -106,6 +127,10 @@ void ScatFormWavvy::change_status(status new_stat) {
     // if status require a large code to initiated .. then write a new function ..
     // called .. initiated_status_$nameofstate().
     switch(this->my_status) {
+
+    case INIT_SCAT_ALG_WAIT:
+        ex_round_messages();
+        break;
 
     case UP_TO_DOWN_WAIT:
         ex_round_messages();
@@ -153,7 +178,7 @@ void ScatFormWavvy::build_up_neighbors_yes_no_table(node_id rmt, node_id max_can
     }
 
     // the candidate that rmt forwarded.
-    node_id the_candidate = candidate_table[rmt];
+    node_id the_candidate = candidate_table[rmt].get_id();
 
     // Q1: is rmt the maximum forwarder of candidate the_candidate?
     node_id max_forwarder = rmt;
@@ -280,6 +305,28 @@ void ScatFormWavvy::ex_round_messages() {
     }
 
     switch (this->my_status){
+
+    case INIT_SCAT_ALG_WAIT:
+        if (! larger_neighbors->is_all_contacted() || true) {       // true for debugging.
+            wait_in_page_scan();
+        } else {
+            cancel_page_scan();
+            change_status(INIT_SCAT_ALG_ACTION);
+        }
+        break;
+
+    case INIT_SCAT_ALG_ACTION:
+        if (! smaller_neighbors->is_all_contacted() || true) {          // true for debugging.
+            // connect_page(find_promising_receiver());
+            connect_page(smaller_neighbors->next_not_contacted().get_id());
+        } else {
+            finalize_init_scat_formation_algorithm();
+
+            change_status(UP_TO_DOWN_WAIT);
+        }
+
+
+        break;
 
 
     case UP_TO_DOWN_WAIT:
@@ -572,31 +619,33 @@ void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
 
     node_type n_type = get_node_type();
     if (n_type == SOURCE) {
-        MsgCandidate candid_msg(this->id_, false, this->current_iteration);
+        MsgCandidate candid_msg(this->id_,
+                                this->my_weight.get_value(),
+                                false,
+                                this->current_iteration);
 
 
         if (trace_node()) {
-            fprintf(stderr, "source node %d sent msg_candidate to %d (reply:%s, candid_id:%d, iter:%d)\n",
-                    this->id_, rmt, bool2str(candid_msg.reply),
-                    candid_msg.candidate_id,
-                    candid_msg.iteration);
+            fprintf(stderr, "source node %d sent msg_candidate to %d: %s \n",
+                    this->id_, rmt, candid_msg.to_string().c_str());
         }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
     } else if (n_type == INTERMEDIATE) {
-        // find the maximum of all the nodes in candidate_table ..
-        node_id max_candidate = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
+        // find the maximum of all the nodes in candidate_table .. (according to their weights).
+        wavvy_weight max_candidate_weight = (max_map_value(candidate_table.begin(), candidate_table.end()))->second;
 
         // Q should we select a different name instead of CmdCandidate?
         // A: No, we don't need that .. the reaction to this message is similar to
         // the one above ..
-        MsgCandidate candid_msg(max_candidate, false, this->current_iteration);
+        MsgCandidate candid_msg(max_candidate_weight.get_id(),
+                                max_candidate_weight.get_value(),
+                                false,
+                                this->current_iteration);
 
         if (trace_node()) {
-            fprintf(stderr, "intermediate node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d, iter:%d)\n",
-                    this->id_, rmt, bool2str(candid_msg.reply),
-                    candid_msg.candidate_id,
-                    candid_msg.iteration);
+            fprintf(stderr, "intermediate node %d sent msg_candidate to %d  %s \n",
+                    this->id_, rmt, candid_msg.to_string().c_str());
         }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
@@ -841,8 +890,8 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
     MsgCandidate* rcvd_msg = (MsgCandidate*) msg->data;
 
     if (trace_node()) {
-        fprintf(stderr, "node %d received cmd_candidate msg from %d: (reply:%s, cand_id:%d) \n",
-                this->id_, rmt, bool2str(rcvd_msg->reply), rcvd_msg->candidate_id);
+        fprintf(stderr, "node %d received cmd_candidate msg from %d: %s \n",
+                this->id_, rmt, rcvd_msg->to_string().c_str());
     }
 
 
@@ -854,12 +903,14 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
 
     if (! rcvd_msg->reply) {
 
-        candidate_table[rmt] = rcvd_msg->candidate_id;
+        // TODO: test me please ..
+        wavvy_weight tw = wavvy_weight(rcvd_msg->candidate_id, rcvd_msg->candidate_weight_val);
+        candidate_table[rmt] = tw;
         up_neighbors_p1.mark_contacted_by_node_id(rmt, true);
 
         if (trace_node()) {
-            fprintf(stderr, "node %d added %d to its candidates and marked %d contacted .. \n",
-                    this->id_, rcvd_msg->candidate_id, rmt);
+            fprintf(stderr, "node %d added %s to its candidates and marked %d contacted .. \n",
+                    this->id_, tw.to_string().c_str(), rmt);
 
             fprintf(stderr, "** now the list of contacted up_neighbors_1(%d) is: ", this->id_);
             up_neighbors_p1.print();
@@ -868,11 +919,10 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
 
         // mark_neighbor_contacted(up_neighbors, rmt);
 
-        MsgCandidate candid_msg(this->id_, true, this->current_iteration);
+        MsgCandidate candid_msg(this->id_, this->my_weight.get_value(), rue, this->current_iteration);
         if (trace_node()) {
-            fprintf(stderr, "node %d sent msg_candidate to %d (reply:%s, max: candid_id:%d)\n",
-                    this->id_, rmt, bool2str(candid_msg.reply),
-                    candid_msg.candidate_id);
+            fprintf(stderr, "node %d sent msg_candidate to %d. %s \n",
+                    this->id_, rmt, candid_msg.to_string().c_str());
         }
         sendMsg(CmdCandidate, (uchar *) &candid_msg, sizeof(MsgCandidate), rmt, rmt);
 
@@ -974,12 +1024,12 @@ void ScatFormWavvy::seperate_all_neighbors() {
     for (unsigned int i = 0; i < all_neighbors.size(); i++) {
         const wavvy_neighbor& temp_node = all_neighbors[i];
 
-        if (temp_node.get_id() > this->id_) {
+        if (temp_node.get_weight() >  this->my_weight) {
             up_neighbors_p1.insert_node(temp_node);
-        } else if (temp_node.get_id() < this->id_) {
+        } else if (temp_node.get_weight() < this->my_weight) {
             down_neighbors_p1.insert_node(temp_node);
         } else {
-            fprintf(stderr, "error(%d): neighbor %d has my id!\n",
+            fprintf(stderr, "error(%d): neighbor %d has my weight!!\n",
                     this->id_, temp_node.get_id());
             abort();
         }

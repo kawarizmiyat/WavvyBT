@@ -6,32 +6,68 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "scat_wavvy_bsf_utilities.h"
-
+#include <string>
+#include <string.h>
 
 struct wavvy_neighbor;
 class wavvy_neighbor_list;
 
 typedef int node_id;
 typedef wavvy_neighbor_list nvect;
+typedef int weight_type;
 
+struct wavvy_weight {
+
+public:
+    wavvy_weight() : val(_weight), id(_id) {}
+    wavvy_weight(weight_type _weight, node_id _id): val(_weight), id(_id) {}
+    wavvy_weight(const wavvy_weight& w): val(w.val), id(w.id) {}
+
+    bool operator==(const wavvy_weight& in) const {
+        return (this->val == in.val && this->id == in.id);
+    }
+
+    bool operator<(const wavvy_weight& in) const {
+        return (this->val < in.val || (this->val == in.val && this->id < in.id));
+    }
+
+    std::string to_string() {
+        char c[128];
+        sprintf(c, "(v:%d, id:%d)", val, id);
+        return std::string(c);
+    }
+
+    weight_type get_value() const { return val; }
+    node_id get_id() const { return id; }
+
+private:
+    weight_type val;
+    node_id id;
+};
 
 struct wavvy_neighbor {
 public:
     wavvy_neighbor() : id (-1), contacted(false) {}
     wavvy_neighbor(node_id _id) : id(_id), contacted(false) {}
+    wavvy_neighbor(node_id _id, wavvy_weight _weight) : id(_id), wavvy_weight(_weight), contacted(false) {}
+
+    wavvy_neighbor(const wavvy_neighbor& w):
+        id (w.id), weight(w.weight), contacted(w.contacted) {}
 
     void set_id(node_id _id) { id = _id; }
     void set_contacted(bool c) { contacted = c; }
 
+
     node_id get_id() const { return id; }
+    wavvy_weight get_weight() const { return weight; }
     bool get_contacted() const { return contacted; }
 
     bool operator<(const wavvy_neighbor& in) const {
-        return (this->id < in.id);
+        return (this->weight < in.weight);
     }
 
     bool operator==(const wavvy_neighbor& in) const {
-        return (this->id == in.id);
+        return (this->weight == in.weight);
     }
 
     wavvy_neighbor& operator=(const wavvy_neighbor& in) {
@@ -42,6 +78,7 @@ public:
 
 private:
     node_id id;
+    wavvy_weight weight;
     bool contacted;
 
 };
@@ -69,6 +106,11 @@ public:
         std::sort(neighbors.begin(), neighbors.end());
         std::reverse(neighbors.begin(), neighbors.end());
     }
+
+    inline void sort_opp() {
+        std::sort(neighbors.begin(), neighbors.end());
+    }
+
     inline unsigned int size() const { return neighbors.size(); }
 
     inline bool is_in(const node_id& u) {
