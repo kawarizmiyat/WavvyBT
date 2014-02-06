@@ -1065,6 +1065,10 @@ void ScatFormWavvy::verify_correctness() {
 
     } while ((wk = wk->getNext()) != node_);
 
+
+    // TODO: starting from the maximum node, find if all nodes were visited (i.e. check connectivity).
+    // We usually do this in analyze_result script.
+
     if (error) {
         fputs(buffer_string, stderr);
         abort();
