@@ -62,7 +62,7 @@ void ScatFormWavvy::_addNeighbor(node_id id) {
 // tracer:
 inline bool ScatFormWavvy::trace_node(){
     // return (true);            // trace every node.
-    return (id_ == 13 || id_ == 6 || id_ == 9);
+    return (id_ == 13 || id_ == 30);
 }
 
 void ScatFormWavvy::init_scat_formation_algorithm() {
@@ -698,11 +698,47 @@ void ScatFormWavvy::recv_handler_cmd_busy(SFmsg* msg, int rmt) {
     // simply disconnet the link - id: must be a master in this case, since reply is sent only by slaves.
 
     // debug .. now.
-    this->busyCond_ = true;
+    // this->busyCond_ = true;
+    // well this works ..
+    // Let's make it better ..
 
-
+    // should we set the busyCond_ flag or not? well that depends whether the next not contacted
+    // receiver is the same as rmt.
+    set_busy_cond_if_required(rmt);
 
     disconnect_page(rmt);
+
+}
+
+void ScatFormWavvy::set_busy_cond_if_required(const node_id& rmt) {
+
+
+
+
+    nvect* nlist_ptr = NULL;
+    switch (this->my_status) {
+    case UP_TO_DOWN_ACTION:
+        nlist_ptr = &(this->down_neighbors_p1);
+        break;
+
+    case DOWN_TO_UP_ACTION:
+        nlist_ptr = &(this->up_neighbors_p2);
+        break;
+
+    default:
+        fprintf(stderr, "error in %d .. case %s is not considered in %s \n",
+                this->id_,
+                state_str(this->my_status),
+                __FUNCTION__);
+    };
+
+
+    // if (nlist_ptr->next_not_contacted_id() == rmt) {
+        this->busyCond_ = true;
+    // }
+
+
+
 
 }
 

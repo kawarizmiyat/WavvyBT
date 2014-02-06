@@ -63,6 +63,7 @@ public:
     inline wavvy_neighbor& get_random_node();
     inline wavvy_neighbor& next();
     inline wavvy_neighbor& next_not_contacted();
+    inline const node_id& next_not_contacted_id();
 
     inline void sort() {
         std::sort(neighbors.begin(), neighbors.end());
@@ -109,7 +110,9 @@ public:
     // the = operator (copy).
     wavvy_neighbor_list& operator=(const wavvy_neighbor_list& in) {
         this->neighbors.clear();
-        this->neighbors = in.neighbors;
+        for (auto it = in.neighbors.begin(); it != in.neighbors.end(); it ++) {
+            this->neighbors.push_back(*it);
+        }
         this->current_neighbor = in.current_neighbor;
         return *this;
     }
@@ -199,12 +202,24 @@ wavvy_neighbor& wavvy_neighbor_list::next() {
     return c;
 }
 
-// TODO test me please ..
 wavvy_neighbor& wavvy_neighbor_list::next_not_contacted() {
     wavvy_neighbor& c = this->next();
     while (c.get_contacted()) { c = this->next(); }
     return c;
 
+}
+
+const node_id& wavvy_neighbor_list::next_not_contacted_id() {
+    // this function is similar to next_not_contacted .. however, this->next() is not changed.
+    // and only the id is returned.
+
+    int i_index = (current_neighbor + 1) % neighbors.size();
+    wavvy_neighbor c = neighbors[i_index];
+    while (c.get_contacted()) {
+        i_index = (i_index + 1) % neighbors.size();
+        c = neighbors[i_index];
+    }
+    return c.get_id();
 }
 
 void wavvy_neighbor_list::mark_contacted_by_node_id(const node_id& u, bool c) {

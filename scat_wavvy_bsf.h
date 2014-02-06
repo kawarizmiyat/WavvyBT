@@ -177,6 +177,7 @@ protected:
     // These functions are made to avoid errors in communications..
     void _expectingDisconnection(int rmt);
     void reset();
+    void set_busy_cond_if_required(const node_id& rmt);
     //void _changeOffsetValue(int id);
 
 
