@@ -531,6 +531,18 @@ void ScatFormWavvy::connected(bd_addr_t rmt) {
     s.cancel(&watchDogEv_);
     s.schedule(&timer_ , &watchDogEv_ , WATCH_DOG_TIMER );
 
+    if (trace_node()) {
+
+        fprintf(stderr, "**the action neighbors are: \n");
+        fprintf(stderr, "**down_neighbors_p1 (%d): ", this->id_);
+        down_neighbors_p1.print();
+
+        fprintf(stderr, "**up_neighbors_p2 (%d): ", this->id_);
+        up_neighbors_p2.print();
+
+
+    }
+
     if (node_->lmp_->curPico && node_->lmp_->curPico->isMaster()){
 
         if (trace_node()) {
@@ -669,9 +681,27 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
 
 void ScatFormWavvy::recv_handler_cmd_busy(SFmsg* msg, int rmt) {
     if (trace_node()) {
+
+        fprintf(stderr, "**the action neighbors are: \n");
+        fprintf(stderr, "**down_neighbors_p1 (%d): ", this->id_);
+        down_neighbors_p1.print();
+
+        fprintf(stderr, "**up_neighbors_p2 (%d): ", this->id_);
+        up_neighbors_p2.print();
+
+
+    }
+
+    if (trace_node()) {
         fprintf(stderr, "node %d received a cmd_busy from %d\n", this->id_, rmt);
     }
     // simply disconnet the link - id: must be a master in this case, since reply is sent only by slaves.
+
+    // debug .. now.
+    this->busyCond_ = true;
+
+
+
     disconnect_page(rmt);
 
 }

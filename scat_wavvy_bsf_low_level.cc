@@ -15,7 +15,7 @@ void ScatFormWavvy::fire(Event * e)
             fprintf(stderr, "** %d BusyDelay Event is triggered at %f \n", id_, s.clock());
         }
 
-        busyCond_ = false;            // is this right ?!!
+        busyCond_ = false;            // is this right ? Yes.
         ex_round_messages();
 
 
@@ -144,6 +144,10 @@ void ScatFormWavvy::linkDetached(bd_addr_t rmt, uchar reason) {
             // Note: this is an important function that I have ignored ..
             // This has been replaced by next() ..
             // _increaseCurrentPaging();
+
+            // Let's test the impact of this function ..(i.e. ex_round_messages).
+            // So this is a greatly important function .. if we don't have it,
+            // then we would contact only one node during the whole algorithm.
             ex_round_messages();
 
 
