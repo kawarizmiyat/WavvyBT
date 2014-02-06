@@ -17,8 +17,8 @@ typedef wavvy_neighbor_list nvect;
 
 struct wavvy_neighbor {
 public:
-    wavvy_neighbor() : id (-1), contacted(0) {}
-    wavvy_neighbor(node_id _id) : id(_id), contacted(0) {}
+    wavvy_neighbor() : id (-1), contacted(false) {}
+    wavvy_neighbor(node_id _id) : id(_id), contacted(false) {}
 
     void set_id(node_id _id) { id = _id; }
     void set_contacted(bool c) { contacted = c; }
@@ -96,7 +96,8 @@ public:
     void print() {
 
         fprintf(stderr, "neighbors list: ");
-        for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin(); it != neighbors.end();
+        for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin();
+             it != neighbors.end();
              it ++) {
             fprintf(stderr, "(%d, %s)", it->get_id(), bool2str(it->get_contacted()));
         }
@@ -107,6 +108,7 @@ public:
 
     // the = operator (copy).
     wavvy_neighbor_list& operator=(const wavvy_neighbor_list& in) {
+        this->neighbors.clear();
         this->neighbors = in.neighbors;
         this->current_neighbor = in.current_neighbor;
         return *this;
@@ -122,10 +124,22 @@ private:
 };
 
 void wavvy_neighbor_list::insert_node(const node_id& u) {
+
+    if (this->is_in(u)) {
+        fprintf(stderr, "temp error: node %d is already in the list! \n", u);
+        abort();
+    }
+
     neighbors.push_back(wavvy_neighbor(u));
 }
 
 void wavvy_neighbor_list::insert_node(const wavvy_neighbor &w) {
+
+    if (this->is_in(w.get_id())) {
+        fprintf(stderr, "temp error: node %d is already in the list! \n", w.get_id());
+        abort();
+    }
+
     neighbors.push_back(w);
 }
 

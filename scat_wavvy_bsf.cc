@@ -1,12 +1,10 @@
-
-// how to terminate the algorithm?
-// well, basically, you need to know if you have
-// 0 down_neighbors, and 1 up_neighbors.
-// This can be known on-the-fly!
-// How?
-
-
-
+// TODO:
+// more tests and tests and tests .. (YO-YO).           (done with simple tests).
+// verify_correctness().
+// simple yo-yo experiments (comapres against a major algorithm at least).
+// max_node() .. how it should be defined. change weight.
+// additional round (out_degree_limitation)
+// additional round (no M/S bridges).
 
 #include "scat_wavvy_bsf.h"
 
@@ -42,11 +40,6 @@ void ScatFormWavvy::_addNeighbor(node_id id) {
     if (id > -1) {
 
         all_neighbors.insert_node(id);
-        if (trace_node()) {
-            fprintf(stderr, "node %d is adding neighbor %d to its neighborhood list ..\n",
-                    this->id_, id);
-        }
-
 
         // adding neighbor clock in the Bd_info;
         // Test: Getting the clk and offset of neighbor & adding the data
@@ -68,7 +61,8 @@ void ScatFormWavvy::_addNeighbor(node_id id) {
 
 // tracer:
 inline bool ScatFormWavvy::trace_node(){
-    return (true);            // trace every node.
+    // return (true);            // trace every node.
+    return (id_ == 13 || id_ == 6 || id_ == 9);
 }
 
 void ScatFormWavvy::init_scat_formation_algorithm() {
@@ -83,14 +77,6 @@ void ScatFormWavvy::init_scat_formation_algorithm() {
     this->up_neighbors_p2.mark_contacted_all(false);
     this->down_neighbors_p1.mark_contacted_all(false);
     this->down_neighbors_p2.mark_contacted_all(false);
-
-
-
-    fprintf(stderr, "node %d in %s: down_neighbors_p2: ", this->id_, state_str(this->my_status));
-    down_neighbors_p2.print();
-
-    fprintf(stderr, "node %d in %s: down_neighbors_p1: ", this->id_, state_str(this->my_status));
-    down_neighbors_p1.print();
 
 }
 
@@ -183,7 +169,9 @@ void ScatFormWavvy::build_up_neighbors_yes_no_table(node_id rmt, node_id max_can
     // if answer of Q1 is yes!
     bool yes_no_cond = (this->down_neighbors_yes_no_table.is_none_NO()) &&
             (the_candidate == max_candidate);
-    bool kill_cond = (max_forwarder != rmt);
+    bool kill_cond = (max_forwarder != rmt);         // ORIGINAL RULE.
+
+
 
     if (yes_no_cond) {
         this->up_neighbors_yes_no_table.set_value(rmt, YES);
@@ -247,8 +235,10 @@ void ScatFormWavvy::init_state_down_to_up_action() {
     //
     // rules:
 
-    fprintf(stderr, "up_neighbors_yes_no_table[%d]: ", this->id_);
-    up_neighbors_yes_no_table.print();
+    if (trace_node()) {
+        fprintf(stderr, "up_neighbors_yes_no_table[%d]: ", this->id_);
+        up_neighbors_yes_no_table.print();
+    }
 
     node_id the_yes_neighbor = -1;
     if (up_neighbors_yes_no_table.only_one_yes_neighbor(the_yes_neighbor)) {
@@ -296,6 +286,12 @@ void ScatFormWavvy::ex_round_messages() {
 
         // if (! is_all_contacted()) {
         if (! up_neighbors_p1.is_all_contacted()) {
+
+            if (trace_node()) {
+                fprintf(stderr, "node %d is waiting for:", this->id_);
+                up_neighbors_p1.print();
+            }
+
             wait_in_page_scan();
 
 
@@ -308,6 +304,11 @@ void ScatFormWavvy::ex_round_messages() {
 
     case UP_TO_DOWN_ACTION:
         if (! down_neighbors_p1.is_all_contacted()) {
+
+            if (trace_node()) {
+                fprintf(stderr, "node %d needs to contact:", this->id_);
+                down_neighbors_p1.print();
+            }
 
             // connect_page(find_promising_receiver());
             connect_page(down_neighbors_p1.next_not_contacted().get_id());
@@ -323,6 +324,10 @@ void ScatFormWavvy::ex_round_messages() {
 
 
         if (! down_neighbors_p2.is_all_contacted()) {
+            if (trace_node()) {
+                fprintf(stderr, "node %d is waiting for:", this->id_);
+                down_neighbors_p2.print();
+            }
 
             wait_in_page_scan();
 
@@ -335,7 +340,15 @@ void ScatFormWavvy::ex_round_messages() {
     case DOWN_TO_UP_ACTION:
 
         if (! up_neighbors_p2.is_all_contacted()) {
+
+            if (trace_node()) {
+                fprintf(stderr, "node %d needs to contact:", this->id_);
+                up_neighbors_p2.print();
+            }
+
             connect_page(up_neighbors_p2.next_not_contacted().get_id());
+
+
         } else {
             handle_iteration_end();                 // the sophisticated version.
         }
@@ -408,11 +421,18 @@ void ScatFormWavvy::handle_iteration_end() {
         // we do nothing when kill or your_child.
         if (tt == NO) {
             temp_up.insert_node(tid);
-            fprintf(stderr, "*** NO: node %d will consider %d as in-to-out neighbors ... ",
+            if (trace_node()) {
+                fprintf(stderr, "*** NO: node %d will consider %d as in-to-out neighbors ... \n",
                     this->id_, tid);
+            }
 
         } else if (tt == YES) {
             temp_down.insert_node(tid);
+
+            if (trace_node()) {
+                fprintf(stderr, "*** YES: node %d will consider %d without change  ... \n",
+                    this->id_, tid);
+            }
 
         } else if (tt == NOT_KNOWN) {
             fprintf(stderr, "error in %d yes_no_map[%d] = NOT_KNOWN at %s \n",
@@ -434,11 +454,18 @@ void ScatFormWavvy::handle_iteration_end() {
         // we do nothing when kill or your_child
         if (tt == NO) {
             temp_down.insert_node(tid);
-            fprintf(stderr, "*** NO: node %d will consider %d as in to in neighbors ..\n",
+            if (trace_node()) {
+                fprintf(stderr, "*** NO: node %d will consider %d as in to in neighbors ..\n",
                     this->id_, tid);
+            }
 
         } else if (tt == YES) {
             temp_up.insert_node(tid);
+
+            if (trace_node()) {
+                fprintf(stderr, "*** YES: node %d will consider %d without change.  ..\n",
+                    this->id_, tid);
+            }
 
         } else if (tt == NOT_KNOWN) {
             fprintf(stderr, "error in %d yes_no_map[%d] = NOT_KNOWN at %s \n",
@@ -446,6 +473,10 @@ void ScatFormWavvy::handle_iteration_end() {
             abort();
         }
     }
+
+
+    // check for dublicates - here?
+
 
     this->up_neighbors_p1 = temp_up;
     this->down_neighbors_p1 = temp_down;
@@ -456,11 +487,16 @@ void ScatFormWavvy::handle_iteration_end() {
 
     if (trace_node()) {
 
-        fprintf(stderr, "the new up_neighbors of (%d) : ", this->id_);
+        fprintf(stderr, "the new up_neighbors (p1) of (%d) : ", this->id_);
         this->up_neighbors_p1.print();
-        fprintf(stderr, "the new down_neighbors of (%d) : ", this->id_);
+        fprintf(stderr, "the new down_neighbors  (p1) of (%d) : ", this->id_);
         this->down_neighbors_p1.print();
 
+
+        fprintf(stderr, "the new up_neighbors (p2) of (%d) : ", this->id_);
+        this->up_neighbors_p2.print();
+        fprintf(stderr, "the new down_neighbors  (p2) of (%d) : ", this->id_);
+        this->down_neighbors_p2.print();
     }
 
 
@@ -472,6 +508,7 @@ void ScatFormWavvy::handle_iteration_end() {
                                     this->id_, current_iteration); }
         change_status(TERMINATE);
     } else {
+
         current_iteration ++;
         up_neighbors_yes_no_table.clear();
         down_neighbors_yes_no_table.clear();
@@ -632,7 +669,7 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
 
 void ScatFormWavvy::recv_handler_cmd_busy(SFmsg* msg, int rmt) {
     if (trace_node()) {
-        fprintf(stderr, "node %d received a cmd_busy from %d\n", rmt);
+        fprintf(stderr, "node %d received a cmd_busy from %d\n", this->id_, rmt);
     }
     // simply disconnet the link - id: must be a master in this case, since reply is sent only by slaves.
     disconnect_page(rmt);
@@ -696,6 +733,9 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
             fprintf(stderr, "node %d marked node %d as contacted and set its yes_no value to %s\n",
                     this->id_, rmt,
                     response2str(down_neighbors_yes_no_table.get_value(rmt)));
+
+            fprintf(stderr, "** now the list of contacted down_neighbors_2(%d) is: ", this->id_);
+            down_neighbors_p2.print();
         }
 
 
@@ -722,6 +762,8 @@ void ScatFormWavvy::recv_handler_cmd_result(SFmsg* msg, int rmt) {
         if (trace_node()) {
             fprintf(stderr, "node %d marked %d as contacted and destroyed link .. \n",
                     this->id_, rmt);
+            fprintf(stderr, "** now the list of contacted up_neighbors_2(%d) is: ", this->id_);
+            up_neighbors_p2.print();
         }
 
     }
@@ -752,6 +794,10 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
         if (trace_node()) {
             fprintf(stderr, "node %d added %d to its candidates and marked %d contacted .. \n",
                     this->id_, rcvd_msg->candidate_id, rmt);
+
+            fprintf(stderr, "** now the list of contacted up_neighbors_1(%d) is: ", this->id_);
+            up_neighbors_p1.print();
+
         }
 
         // mark_neighbor_contacted(up_neighbors, rmt);
@@ -773,6 +819,9 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
         if (trace_node()) {
             fprintf(stderr, "node %d marked %d as contacted and destroyed link .. \n",
                     this->id_, rmt);
+
+            fprintf(stderr, "** now the list of contacted down_neighbors_1(%d) is: ", this->id_);
+            down_neighbors_p1.print();
         }
     }
 }
@@ -780,18 +829,31 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
 
 // printign the final result ..
 void ScatFormWavvy::_printResultsInFile(const char* filename) {
-  FILE *cfPtr;
 
-  if ((cfPtr = fopen(filename, "w")) == NULL) {
-    fprintf(stderr, "*** Error: ScatFormTesting: File could not be opened");
+    // before printing the final result, we need to verify that the execution is correct
+    // using simple rules.
+    // We know that _printResultsInFile is called only when the algorithm terminates, and hence
+    // it is logical to call verify_correctness() from this point of the algorithm.
+    // of course, we can write a commend in the tcl file. However, this would require a modification
+    // on other files .. I don't think it would be necessary to do that.
+    verify_correctness();
 
-  } else {
+    // there is no need to write an if-statement to check whether the correctness is correct.
+    // correctness will print the results on the stderr output.
 
-   print_all(cfPtr);
 
-  } // end of if-statement
+    FILE *cfPtr;
 
-  fclose(cfPtr);
+    if ((cfPtr = fopen(filename, "w")) == NULL) {
+        fprintf(stderr, "*** Error: ScatFormTesting: File could not be opened");
+
+    } else {
+
+        print_all(cfPtr);
+
+    } // end of if-statement
+
+    fclose(cfPtr);
 
 }
 
@@ -816,7 +878,7 @@ void ScatFormWavvy::print_result_in_row(FILE* cfPtr) {
     // create a function in ScatFormWavvy .. make_master(node_id), make_slave(node_id) ..
     //
 
-    fprintf(cfPtr, "<parent> %d", this->parent_id);
+    fprintf(cfPtr, "<parent> %d ", this->parent_id);
 
     fprintf(cfPtr, "<children> ");
     for (auto i = 0; i < this->children_id.size(); i++)
@@ -879,4 +941,66 @@ void ScatFormWavvy::flip_neighbor_direction(node_id u, const char* code) {
     }
 
     move_node(u, from, to);
+}
+
+node_id ScatFormWavvy::find_max_node_in_scatternet() {
+    node_id max_id = -1;
+    BTNode *wk = node_;
+    ScatFormWavvy *c_node;
+    do {
+        c_node = ((ScatFormWavvy *) wk->scatFormator_);
+        if (c_node->id_ > max_id) max_id = c_node->id_;
+    } while ((wk = wk->getNext()) != node_);
+    return max_id;
+}
+
+void ScatFormWavvy::verify_correctness() {
+
+    BTNode *wk = node_;
+    ScatFormWavvy *cnode;
+    char buffer_string[12800];
+    char error_message[128];
+    strcpy (buffer_string,"");
+
+    node_id max_id = find_max_node_in_scatternet();
+    unsigned int root_count = 0;
+    bool error = false;
+
+    do {
+        cnode = ((ScatFormWavvy *) wk->scatFormator_);
+
+        if (cnode->parent_id == -1) {
+            root_count ++;
+
+            if (cnode->id_ != max_id) {
+                error = true;
+                sprintf(error_message, "node %d is a root but not the max\n", cnode->id_);
+                strcat(buffer_string, error_message);
+
+            }
+
+            if (root_count > 1) {
+                error = true;
+
+                sprintf(error_message, "node %d is found to be root .. now we have %d root nodes \n",
+                        cnode->id_, root_count);
+                strcat(buffer_string, error_message);
+            }
+
+        }
+
+        if (cnode->my_status != TERMINATE) {
+            error = true;
+            sprintf(error_message, "node %d did not terminate!\n", cnode->id_);
+            strcat(buffer_string, error_message);
+        }
+
+
+
+    } while ((wk = wk->getNext()) != node_);
+
+    if (error) {
+        fputs(buffer_string, stderr);
+        abort();
+    }
 }

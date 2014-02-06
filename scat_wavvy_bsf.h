@@ -165,7 +165,7 @@ protected:
     void _main();
     void ex_round_messages();
     void handle_iteration_end();
-
+    void verify_correctness();
 
     void recv_handler(SFmsg* msg, int rmt);
     void recv_handler_cmd_candidate(SFmsg* msg, int rmt);
@@ -211,7 +211,7 @@ private:
     // wait for, cancel, and make connection ..
     inline void wait_in_page_scan();
     inline void cancel_page_scan();
-    inline void connect_page(int receiver_id);
+    void connect_page(int receiver_id);
     inline void disconnect_page(int receiver_id);
 
     // whether we use up_neighbors_p1 or up_neighbors_p2 .. it won't be a problem.
@@ -229,6 +229,9 @@ private:
             abort();
         }
     }
+
+
+    node_id find_max_node_in_scatternet();
 
 private:
 
@@ -262,7 +265,7 @@ private:
             // this is only one yes, and everything else is either KILL or YOUR_CHILD.
             unsigned int count_yes = 0;
             for (auto it = table.begin(); it != table.end(); it++) {
-                fprintf(stderr, "checking states of %d : %s \n", it->first, response2str(it->second));
+                // fprintf(stderr, "checking states of %d : %s \n", it->first, response2str(it->second));
 
                 if (it->second == YES) { count_yes ++; the_yes_neighbor = it->first;}
                 else if (it->second == NO) {
@@ -381,9 +384,10 @@ inline void ScatFormWavvy::connect_page(int receiver_id) {
 
     // debugging ..
     if (trace_node()) {
-        fprintf(stderr, "%d -> %d CON (%s) %f \n",
+        fprintf(stderr, "%d -> %d CON (%s) in iteration %d at time: %f \n",
                 id_, receiver_id,
                 this->state_str(this->my_status),
+                this->current_iteration,
                 s.clock());
     }
 
