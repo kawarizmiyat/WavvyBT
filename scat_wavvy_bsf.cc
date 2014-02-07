@@ -105,7 +105,8 @@ void ScatFormWavvy::finalize_init_scat_formation_algorithm() {
 
 
     if (trace_node()) {
-        fprintf(stderr, "node %d finalized the initiation of the algorithm: the set of its neighbors are: \n");
+        fprintf(stderr, "node %d finalized the initiation of the algorithm: the set of its neighbors are: \n",
+                this->id_);
         this->all_neighbors.print();
 
     }
@@ -834,9 +835,8 @@ void ScatFormWavvy::recv_handler_cmd_weight(SFmsg *msg, int rmt) {
     }
 
     if (! rcvd_msg->reply) {
-        this->all_neighbors.find_node_by_id(rmt).set_weight(
-                    rcvd_msg->val, rmt);
-        this->larger_neighbors->mark_contacted_by_node_id(rmt);
+        this->all_neighbors.find_node_by_id(rmt).set_weight(wavvy_weight(rcvd_msg->val, rmt));
+        this->larger_neighbors->mark_contacted_by_node_id(rmt, true);
 
         MsgWeight weight_msg(my_weight.get_value(), false);
         if (trace_node()) {
@@ -848,8 +848,8 @@ void ScatFormWavvy::recv_handler_cmd_weight(SFmsg *msg, int rmt) {
 
     } else {
 
-        this->all_neighbors.find_node_by_id(rmt).set_weight(rcvd_msg->val, rmt);
-        this->smaller_neighbors->mark_contacted_by_node_id(rmt);
+        this->all_neighbors.find_node_by_id(rmt).set_weight(wavvy_weight(rcvd_msg->val, rmt));
+        this->smaller_neighbors->mark_contacted_by_node_id(rmt, true);
 
         if (trace_node()) {
             fprintf(stderr, "node %d sends a weight msg to %d and disconect the link ..\n",

@@ -40,7 +40,6 @@ public:
     weight_type get_value() const { return val; }
     node_id get_id() const { return id; }
 
-private:
     weight_type val;
     node_id id;
 };
@@ -60,6 +59,7 @@ public:
         weight.val = in.val;
         weight.id = in.id;
     }
+
 
     node_id get_id() const { return id; }
     wavvy_weight get_weight() const { return weight; }

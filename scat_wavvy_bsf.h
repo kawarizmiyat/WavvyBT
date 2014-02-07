@@ -42,7 +42,7 @@ struct MsgWeight {
 
     std::string to_string() {
         char msg_output[64];
-        sprintf(msg_output, "(wv: %d, reply: %s)", val, reply);
+        sprintf(msg_output, "(wv: %d, reply: %s)", val, bool2str(reply));
         return std::string(msg_output);
     }
 
@@ -217,6 +217,7 @@ protected:
     void recv_handler_cmd_candidate(SFmsg* msg, int rmt);
     void recv_handler_cmd_result(SFmsg* msg, int rmt);
     void recv_handler_cmd_busy(SFmsg* msg, int rmt);
+    void recv_handler_cmd_weight(SFmsg *msg, int rmt);
     void send_busy_msg(int rmt);
 
 
