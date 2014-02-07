@@ -37,6 +37,19 @@ struct MsgBusy {
     bool busy;
 };
 
+struct MsgWeight {
+    MsgWeight(weight_type _val, bool _reply) : val(_val), reply(_reply) { }
+
+    std::string to_string() {
+        char msg_output[64];
+        sprintf(msg_output, "(wv: %d, reply: %s)", val, reply);
+        return std::string(msg_output);
+    }
+
+    weight_type val;
+    bool reply;
+};
+
 struct MsgCandidate {
 
     // MsgCandidate(node_id _id) : candidate_id(_id) { }
@@ -63,8 +76,9 @@ struct MsgCandidate {
 
 
 struct MsgResult {
-    MsgResult(node_id _id, bool _yes_no, bool _kill, bool _cp, bool _reply, unsigned int _iter) :
+    MsgResult(node_id _id, weight_type _v, bool _yes_no, bool _kill, bool _cp, bool _reply, unsigned int _iter) :
         max_candidate_id(_id),
+        max_candidate_val(_v),
         yes_no(_yes_no),
         kill(_kill),
         is_child(_cp),
@@ -72,7 +86,21 @@ struct MsgResult {
         iteration(_iter){}
 
 
+    std::string to_string() {
+        char msg_output[256];
+        sprintf(msg_output, "(mc_id: %d, mc_v: %d, yes_no: %s, kill: %s, is_child: %s, rep: %s, iter: %d)",
+                max_candidate_id,
+                max_candidate_val,
+                bool2str(yes_no),
+                bool2str(kill),
+                bool2str(is_child),
+                bool2str(reply),
+                iteration);
+        return std::string(msg_output);
+    }
+
     node_id max_candidate_id;
+    weight_type max_candidate_val;
     bool yes_no;
     bool kill;
     bool is_child;
@@ -95,7 +123,7 @@ class ScatFormWavvy : public ScatFormator {
                  TERMINATE};
 
 
-    enum msgCmd {CmdCandidate, CmdResult, CmdBusy};
+    enum msgCmd {CmdCandidate, CmdResult, CmdWeight,  CmdBusy};
     enum response_type {YES, NO, KILL, YOUR_CHILD, NOT_KNOWN};
     enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
@@ -211,18 +239,19 @@ protected:
     // handling connected:
     void initiate_connected_up_to_down_action(bd_addr_t rmt);
     void initiate_connected_down_to_up_action(bd_addr_t rmt);
-
+    void initiate_connected_init_scat_alg_action(bd_addr_t rmt);
 
 
 
 private:
 
+
+
     // specific to wavvy ..
     void flip_neighbor_direction(node_id u, const char* code);
-    void make_unnecessary_neighbor(node_id u, nvect& neighbors_list);
     void seperate_all_neighbors();
     void build_up_neighbors_yes_no_table();
-    void build_up_neighbors_yes_no_table(node_id rmt, node_id max_candidate);
+    void build_up_neighbors_yes_no_table(node_id rmt, node_id max_candidate_id);
     bool rcvd_kill_or_your_child_f_all_d_neighbors();
     // bool only_one_yes_neighbor(node_id& the_yes_neighbor);
 
@@ -247,6 +276,10 @@ private:
             fprintf(stderr, "error in %d in function %s \n", this->id_, __FUNCTION__);
             abort();
         }
+    }
+
+    wavvy_weight get_weight(node_id u) {
+        return all_neighbors.find_node_by_id(u).get_weight();
     }
 
 
@@ -347,7 +380,7 @@ private:
     unsigned int current_iteration;
     role my_role;
     float finishing_time;
-    weight my_weight;
+    wavvy_weight my_weight;
 
 
     std::map<node_id, wavvy_weight> candidate_table;

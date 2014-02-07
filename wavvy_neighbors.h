@@ -19,7 +19,7 @@ typedef int weight_type;
 struct wavvy_weight {
 
 public:
-    wavvy_weight() : val(_weight), id(_id) {}
+    wavvy_weight() : val(-1), id(-1) {}
     wavvy_weight(weight_type _weight, node_id _id): val(_weight), id(_id) {}
     wavvy_weight(const wavvy_weight& w): val(w.val), id(w.id) {}
 
@@ -49,14 +49,17 @@ struct wavvy_neighbor {
 public:
     wavvy_neighbor() : id (-1), contacted(false) {}
     wavvy_neighbor(node_id _id) : id(_id), contacted(false) {}
-    wavvy_neighbor(node_id _id, wavvy_weight _weight) : id(_id), wavvy_weight(_weight), contacted(false) {}
+    wavvy_neighbor(node_id _id, wavvy_weight _weight) : id(_id), weight(_weight), contacted(false) {}
 
     wavvy_neighbor(const wavvy_neighbor& w):
         id (w.id), weight(w.weight), contacted(w.contacted) {}
 
     void set_id(node_id _id) { id = _id; }
     void set_contacted(bool c) { contacted = c; }
-
+    void set_weight(const wavvy_weight& in) {
+        weight.val = in.val;
+        weight.id = in.id;
+    }
 
     node_id get_id() const { return id; }
     wavvy_weight get_weight() const { return weight; }
@@ -100,7 +103,7 @@ public:
     inline wavvy_neighbor& get_random_node();
     inline wavvy_neighbor next();
     inline wavvy_neighbor next_not_contacted();
-    inline const node_id& next_not_contacted_id();
+    inline node_id next_not_contacted_id();
 
     inline void sort() {
         std::sort(neighbors.begin(), neighbors.end());
@@ -139,10 +142,13 @@ public:
     void print() {
 
         fprintf(stderr, "neighbors list: ");
-        for (std::vector<wavvy_neighbor>::iterator it = neighbors.begin();
+        for (auto it = neighbors.begin();
              it != neighbors.end();
              it ++) {
-            fprintf(stderr, "(%d, %s)", it->get_id(), bool2str(it->get_contacted()));
+
+            fprintf(stderr, "(%s, %s)",
+                    it->get_weight().to_string().c_str(),
+                    bool2str(it->get_contacted()));
         }
         fprintf(stderr, "\n");
 
@@ -251,7 +257,7 @@ wavvy_neighbor wavvy_neighbor_list::next_not_contacted() {
 
 }
 
-const node_id& wavvy_neighbor_list::next_not_contacted_id() {
+node_id wavvy_neighbor_list::next_not_contacted_id() {
     // this function is similar to next_not_contacted .. however, this->next() is not changed.
     // and only the id is returned.
 
