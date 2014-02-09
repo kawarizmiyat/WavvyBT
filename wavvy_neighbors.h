@@ -13,8 +13,12 @@ struct wavvy_neighbor;
 class wavvy_neighbor_list;
 
 typedef int node_id;
+// typedef int weight_type;
+// TYPE_DEF(int, node_id);
+TYPE_DEF(int, weight_type);
 typedef wavvy_neighbor_list nvect;
-typedef int weight_type;
+
+
 
 struct wavvy_weight {
 
@@ -28,12 +32,12 @@ public:
     }
 
     bool operator<(const wavvy_weight& in) const {
-        return (this->val < in.val || (this->val == in.val && this->id < in.id));
+        return (this->val < in.val || ((this->val == in.val) && (this->id < in.id)));
     }
 
     std::string to_string() {
         char c[128];
-        sprintf(c, "(v:%d, id:%d)", val, id);
+        sprintf(c, "[v:%d, id:%d]", *val, id);
         return std::string(c);
     }
 
@@ -46,8 +50,8 @@ public:
 
 struct wavvy_neighbor {
 public:
-    wavvy_neighbor() : id (-1), contacted(false) {}
-    wavvy_neighbor(node_id _id) : id(_id), contacted(false) {}
+    wavvy_neighbor() : id (-1), weight(wavvy_weight(0, -1)), contacted(false) {}
+    wavvy_neighbor(node_id _id) : id(_id), weight(wavvy_weight(0, _id)), contacted(false) {}
     wavvy_neighbor(node_id _id, wavvy_weight _weight) : id(_id), weight(_weight), contacted(false) {}
 
     wavvy_neighbor(const wavvy_neighbor& w):
@@ -71,6 +75,10 @@ public:
 
     bool operator==(const wavvy_neighbor& in) const {
         return (this->weight == in.weight);
+    }
+
+    bool operator==(const node_id& inid) const {
+        return (this->id == inid);
     }
 
     wavvy_neighbor& operator=(const wavvy_neighbor& in) {
@@ -211,6 +219,10 @@ wavvy_neighbor& wavvy_neighbor_list::find_node_by_id(const node_id& u) {
     if (it == neighbors.end()) {
         fprintf(stderr, "error in %s .. node %d does not exist in current neighbor list\n",
                 __FUNCTION__, u);
+
+        fprintf(stderr, "the existing node in this list are: ");
+        this->print();
+
         abort();
     }
 

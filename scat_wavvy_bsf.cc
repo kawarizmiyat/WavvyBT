@@ -3,6 +3,7 @@
 // verify_correctness().
 // simple yo-yo experiments (comapres against a major algorithm at least).
 // max_node() .. how it should be defined. change weight.
+// sort neighbors to improve performance ..
 // additional round (out_degree_limitation)
 // additional round (no M/S bridges).
 
@@ -32,6 +33,10 @@ ScatFormWavvy::ScatFormWavvy(BTNode *n):
     busyCond_  = false;
     waitingDiscCounter_ = 0 ;
 
+    my_weight = wavvy_weight(0, this->id_);
+    smaller_neighbors = NULL;
+    larger_neighbors = NULL;
+    algorithm_version = REG;
 
 }
 
@@ -61,13 +66,15 @@ void ScatFormWavvy::_addNeighbor(node_id id) {
 
 // tracer:
 inline bool ScatFormWavvy::trace_node(){
-    // return (true);            // trace every node.
-    return (id_ == 13 || id_ == 30);
+    return (true);            // trace every node.
+
 }
 
 void ScatFormWavvy::init_scat_formation_algorithm() {
     this->all_neighbors.sort();
-    this->my_weight = wavvy_weight(0, this->id_);       //0: so that it is fixed ..
+    // weight_type temp(all_neighbors.size());
+
+    this->my_weight = wavvy_weight(weight_type((int) all_neighbors.size()), this->id_);       //0: so that it is fixed ..
 
     // dynamically allocate smaller_neighbors .. and large neighbors.
     // and create them.
@@ -100,14 +107,20 @@ void ScatFormWavvy::finalize_init_scat_formation_algorithm() {
 
 
     // de-allocate the nvects .. we wont need them anymore.
-    delete smaller_neighbors;
-    delete larger_neighbors;
+    if (smaller_neighbors) {  delete smaller_neighbors; }
+    if (larger_neighbors) { delete larger_neighbors; }
 
 
     if (trace_node()) {
-        fprintf(stderr, "node %d finalized the initiation of the algorithm: the set of its neighbors are: \n",
+        fprintf(stderr, "***** node %d finalized the initiation of the algorithm: the set of its neighbors are: \n",
                 this->id_);
         this->all_neighbors.print();
+
+        fprintf(stderr, "***** up neighbors[%d]: ", this->id_);
+        this->up_neighbors_p1.print();
+
+        fprintf(stderr, "***** down neighbors[%d]: ", this->id_);
+        this->down_neighbors_p1.print();
 
     }
 
@@ -116,8 +129,14 @@ void ScatFormWavvy::finalize_init_scat_formation_algorithm() {
 // main function ..
 void ScatFormWavvy::_main() {
 
+    if (algorithm_version == WEIGHTED) {
     init_scat_formation_algorithm();    // here: all nodes are already inserted into
     change_status(INIT_SCAT_ALG_WAIT);
+
+    } else if (algorithm_version == REG) {
+    finalize_init_scat_formation_algorithm();
+    change_status(UP_TO_DOWN_WAIT);
+    }
 
     // change_status(UP_TO_DOWN_WAIT);
 }
@@ -193,7 +212,8 @@ void ScatFormWavvy::build_up_neighbors_yes_no_table(node_id rmt, node_id max_can
 
 
     if (trace_node()) {
-        fprintf(stderr, "node %d is building the yes_no value of %d \n", this->id_, rmt);
+        fprintf(stderr, "node %d is building the yes_no value of %d (max_candidate: %d) \n",
+                this->id_, rmt, max_candidate_id);
     }
 
     // the candidate that rmt forwarded.
@@ -340,6 +360,7 @@ void ScatFormWavvy::ex_round_messages() {
         } else {
             finalize_init_scat_formation_algorithm();
 
+            // change_status(TERMINATE);
             change_status(UP_TO_DOWN_WAIT);
         }
 
@@ -596,18 +617,6 @@ void ScatFormWavvy::connected(bd_addr_t rmt) {
     s.cancel(&watchDogEv_);
     s.schedule(&timer_ , &watchDogEv_ , WATCH_DOG_TIMER );
 
-    if (trace_node()) {
-
-        fprintf(stderr, "**the action neighbors are: \n");
-        fprintf(stderr, "**down_neighbors_p1 (%d): ", this->id_);
-        down_neighbors_p1.print();
-
-        fprintf(stderr, "**up_neighbors_p2 (%d): ", this->id_);
-        up_neighbors_p2.print();
-
-
-    }
-
     if (node_->lmp_->curPico && node_->lmp_->curPico->isMaster()){
 
         if (trace_node()) {
@@ -638,14 +647,14 @@ void ScatFormWavvy::connected(bd_addr_t rmt) {
 
 
 void ScatFormWavvy::initiate_connected_init_scat_alg_action(bd_addr_t rmt) {
-    MsgWeight weight_msg(my_weight.get_value(), true);
+    MsgWeight weight_msg(my_weight.get_value(), false);
 
     if (trace_node()) {
         fprintf(stderr, "source node %d sent msg_weight to %d: %s \n",
                 this->id_, rmt, weight_msg.to_string().c_str());
     }
 
-    sendMsg(CmdCandidate, (uchar *) &weight_msg, sizeof(MsgCandidate), rmt, rmt);
+    sendMsg(CmdWeight, (uchar *) &weight_msg, sizeof(MsgWeight), rmt, rmt);
 }
 
 void ScatFormWavvy::initiate_connected_up_to_down_action(bd_addr_t rmt) {
@@ -838,7 +847,8 @@ void ScatFormWavvy::recv_handler_cmd_weight(SFmsg *msg, int rmt) {
         this->all_neighbors.find_node_by_id(rmt).set_weight(wavvy_weight(rcvd_msg->val, rmt));
         this->larger_neighbors->mark_contacted_by_node_id(rmt, true);
 
-        MsgWeight weight_msg(my_weight.get_value(), false);
+        MsgWeight weight_msg(my_weight.get_value(), true);
+
         if (trace_node()) {
             fprintf(stderr, "node %d sends a weight msg to %d %s \n",
                     this->id_, rmt, weight_msg.to_string().c_str());
@@ -958,7 +968,7 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
     if (! rcvd_msg->reply) {
 
         // TODO: test me please ..
-        wavvy_weight tw = wavvy_weight(rcvd_msg->candidate_id, rcvd_msg->candidate_weight_val);
+        wavvy_weight tw = wavvy_weight(rcvd_msg->candidate_weight_val, rcvd_msg->candidate_id);
         candidate_table[rmt] = tw;
         up_neighbors_p1.mark_contacted_by_node_id(rmt, true);
 
@@ -972,7 +982,6 @@ void ScatFormWavvy::recv_handler_cmd_candidate(SFmsg* msg, int rmt) {
         }
 
         // mark_neighbor_contacted(up_neighbors, rmt);
-
         MsgCandidate candid_msg(this->id_, this->my_weight.get_value(), true, this->current_iteration);
         if (trace_node()) {
             fprintf(stderr, "node %d sent msg_candidate to %d. %s \n",

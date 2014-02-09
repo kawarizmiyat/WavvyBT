@@ -42,7 +42,7 @@ struct MsgWeight {
 
     std::string to_string() {
         char msg_output[64];
-        sprintf(msg_output, "(wv: %d, reply: %s)", val, bool2str(reply));
+        sprintf(msg_output, "(wv: %d, reply: %s)", *val, bool2str(reply));
         return std::string(msg_output);
     }
 
@@ -62,7 +62,7 @@ struct MsgCandidate {
 
     std::string to_string() {
         char msg_output[256];
-        sprintf(msg_output, "(c_id: %d, c_wv: %d, iter:%d, rep:%s)", candidate_id, candidate_weight_val,
+        sprintf(msg_output, "(c_id: %d, c_wv: %d, iter:%d, rep:%s)", candidate_id, *candidate_weight_val,
                 iteration,
                 bool2str(reply));
         return std::string(msg_output);
@@ -90,7 +90,7 @@ struct MsgResult {
         char msg_output[256];
         sprintf(msg_output, "(mc_id: %d, mc_v: %d, yes_no: %s, kill: %s, is_child: %s, rep: %s, iter: %d)",
                 max_candidate_id,
-                max_candidate_val,
+                *max_candidate_val,
                 bool2str(yes_no),
                 bool2str(kill),
                 bool2str(is_child),
@@ -107,6 +107,9 @@ struct MsgResult {
     bool reply;
     unsigned int iteration;
 };
+
+// the type of the algoirithm.
+enum alg_ver { REG, WEIGHTED};
 
 // TODO: statuses .. need to be handled in a better way ..
 // a class or a struct ..
@@ -372,6 +375,9 @@ private:
 
 
 private:
+
+    alg_ver algorithm_version;
+
     nvect all_neighbors;
     nvect up_neighbors_p1, down_neighbors_p1;
     nvect up_neighbors_p2, down_neighbors_p2;
