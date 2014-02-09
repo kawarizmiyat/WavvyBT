@@ -126,6 +126,28 @@ void ScatFormWavvy::finalize_init_scat_formation_algorithm() {
 
 }
 
+
+void ScatFormWavvy::init_state_out_degree_wait() {
+    parents_neighbors = new nvect();
+    children_neighbors = new nvect();
+
+    parents_neighbors->insert_node(this->parent_id);
+    for (auto it = children_id.begin(); it != children_id.end(); it++) {
+        children_neighbors->insert_node(*it);               // copying - but you can test me if you want ..
+    }
+
+    // make sure childrens are sorted to improve execution time .
+    children_neighbors->sort();
+    my_role = MASTER;           // initially all nodes are masters - except those that receive
+                                // initially nodes have no slaves ..
+
+}
+
+void ScatFormWavvy::handle_out_degree_termination() {
+    delete children_neighbors;
+    delete parents_neighbors;
+}
+
 // main function ..
 void ScatFormWavvy::_main() {
 
@@ -189,6 +211,18 @@ void ScatFormWavvy::change_status(status new_stat) {
         init_state_down_to_up_action();
         ex_round_messages();
         break;
+
+
+    case OUT_DEGREE_WAIT:
+        init_state_out_degree_wait();
+        ex_round_messages();
+        break;
+
+    case OUT_DEGREE_ACTION:
+        ex_round_messages();
+        break;
+
+
 
     case TERMINATE:
         this->finishing_time = Scheduler::instance().clock() ;
@@ -427,18 +461,31 @@ void ScatFormWavvy::ex_round_messages() {
 
         if (! up_neighbors_p2.is_all_contacted()) {
 
-            if (trace_node()) {
-                fprintf(stderr, "node %d needs to contact:", this->id_);
-                up_neighbors_p2.print();
-            }
-
             connect_page(up_neighbors_p2.next_not_contacted().get_id());
-
 
         } else {
             handle_iteration_end();                 // the sophisticated version.
         }
         break;
+
+
+    case OUT_DEGREE_WAIT:
+        if (! parents_neighbors->is_all_contacted()) {
+            wait_in_page_scan();
+        } else {
+            cancel_page_scan();
+            change_status(OUT_DEGREE_ACTION);
+        }
+        break;
+
+    case OUT_DEGREE_ACTION:
+        if (! children_neighbors->is_all_contacted()) {
+            connect_page(children_neighbors->next_not_contacted().get_id());
+        } else {
+
+            handle_out_degree_termination();
+            change_status(TERMINATE);
+        }
 
     default:
         fprintf(stderr, "**** Error: %d unsupported case %s \n", this->id_, state_str(this->my_status));
@@ -637,6 +684,10 @@ void ScatFormWavvy::connected(bd_addr_t rmt) {
             initiate_connected_down_to_up_action(rmt);
             break;
 
+        case OUT_DEGREE_ACTION:
+            initiate_connected_out_degree_action(rmt);
+            break;
+
         default:
             fprintf(stderr, "error(%d): satatus is not handled by %s \n", this->id_, __FUNCTION__);
 
@@ -645,12 +696,30 @@ void ScatFormWavvy::connected(bd_addr_t rmt) {
     }
 }
 
+void ScatFormWavvy::initiate_connected_out_degree_action(bd_addr_t rmt) {
+
+    // i.e. capture a child rmt only if my_role is master (i.e. never been capture before, and you
+    // have less than 7 slaves already).
+
+    // error here ..
+    // role to_do ( ((my_role == MASTER || my_role == MS)  && (slaves_ids.size() < 7)) ?  MASTER : SLAVE ) ;
+
+    // this is sufficient in out_degree_limitation .. in NO_MS, the case will be different.
+    role to_do (slaves_ids.size() < 7 ? MASTER : SLAVE);
+    MsgSlave slave_msg(to_do, false);
+
+    if (trace_node()) {
+        fprintf(stderr, "node %d sent msg_slave to %d: %s \n", this->id_, rmt, slave_msg.to_string().c_str());
+    }
+
+    sendMsg(CmdSlave, (uchar *) &slave_msg, sizeof(MsgSlave), rmt, rmt);
+}
 
 void ScatFormWavvy::initiate_connected_init_scat_alg_action(bd_addr_t rmt) {
     MsgWeight weight_msg(my_weight.get_value(), false);
 
     if (trace_node()) {
-        fprintf(stderr, "source node %d sent msg_weight to %d: %s \n",
+        fprintf(stderr, "node %d sent msg_weight to %d: %s \n",
                 this->id_, rmt, weight_msg.to_string().c_str());
     }
 
@@ -766,12 +835,18 @@ void ScatFormWavvy::recv_handler(SFmsg* msg, int rmt) {
         recv_handler_cmd_busy(msg, rmt);
         break;
 
+    case CmdSlave:
+        recv_handler_cmd_slave(msg, rmt);
+        break;
+
     default:
         fprintf(stderr, "*** Error at %d: unsupported type of messages \n", id_);
         abort();
         break;
     }
 }
+
+
 
 
 void ScatFormWavvy::recv_handler_cmd_busy(SFmsg* msg, int rmt) {
@@ -834,6 +909,76 @@ void ScatFormWavvy::send_busy_msg(int rmt) {
 
 
 
+void ScatFormWavvy::recv_handler_cmd_slave(SFmsg* msg, int rmt) {
+
+    MsgSlave* rcvd_msg = (MsgSlave *) msg->data;
+
+    if (trace_node()) {
+        fprintf(stderr, "node %d received a cmd_slave from %d: %s \n",
+                this->id_, rmt, rcvd_msg->to_string().c_str());
+    }
+
+
+    if (my_status != OUT_DEGREE_ACTION && my_status != OUT_DEGREE_WAIT) {
+        send_busy_msg(rmt);
+        return;
+    }
+
+
+    if (rcvd_msg->operation == SLAVE) {
+        fprintf(stderr, "node %d is becoming slave to %d \n", this->id_, rmt);
+        //change_my_role(SLAVE);
+        this->masters_ids.push_back(rmt);
+    } else if (rcvd_msg->operation == MASTER) {
+        fprintf(stderr, "node %d is becomging a master to %d \n", this->id_, rmt);
+        //change_my_role(MASTER);
+        this->slaves_ids.push_back(rmt);
+
+        // note, that since only the parent will ask rmt to do this operation, then
+        // slaves_ids will never exceed 7 ! in fact, this part of the algorithm (if-else-statement)
+        // will never exceed slaves_ids to more than 1 !
+
+        if (! rcvd_msg->reply && this->slaves_ids.size() > 1) {
+            fprintf(stderr, "error in %d at %s .. slaves_ids cannot exceed 1 in this scenarion\n",
+                    this->id_, __FUNCTION__);
+            abort();
+        }
+
+    } else {
+        fprintf(stderr, "node %d received %s as operation .. not allowed \n",
+                this->id_, role2str(rcvd_msg->operation));
+        abort();
+    }
+
+
+    if (! rcvd_msg->reply) {
+
+        // since - every node receive a message from its parent in the tree in this phase.
+        parents_neighbors->mark_contacted_by_node_id(rmt, true);
+
+        role to_do = (rcvd_msg->operation == SLAVE) ? MASTER : SLAVE;
+        MsgSlave msg_slave = MsgSlave(to_do, true);
+
+        if (trace_node()) {
+            fprintf(stderr, "node %d sends a slave msg to %d : %s \n", id_, rmt, msg_slave.to_string().c_str());
+        }
+        sendMsg(CmdSlave, (uchar *) &msg_slave, sizeof(MsgSlave), rmt, rmt);
+
+
+    } else {
+        children_neighbors->mark_contacted_by_node_id(rmt, true);
+
+        if (trace_node()) {
+            fprintf(stderr, "node %d sets slave and disconect the link with %d ..\n",
+                    this->id_, rmt);
+        }
+
+        disconnect_page(rmt);
+
+    }
+
+}
+
 void ScatFormWavvy::recv_handler_cmd_weight(SFmsg *msg, int rmt) {
 
     MsgWeight* rcvd_msg = (MsgWeight *) msg->data;
@@ -862,7 +1007,7 @@ void ScatFormWavvy::recv_handler_cmd_weight(SFmsg *msg, int rmt) {
         this->smaller_neighbors->mark_contacted_by_node_id(rmt, true);
 
         if (trace_node()) {
-            fprintf(stderr, "node %d sends a weight msg to %d and disconect the link ..\n",
+            fprintf(stderr, "node %d sets weight %d and disconect the link ..\n",
                     this->id_, rmt);
         }
 

@@ -30,7 +30,23 @@ using namespace std;
 #define TEST    0
 
 class ScatFormWavvy;
+enum role {MASTER, SLAVE, MS, SS, NONE};
 
+
+static const char *role2str(role t) {
+    switch(t) {
+    case MASTER: return "master";
+    case SLAVE: return "slave";
+    case MS: return "MS";
+    case SS: return "SS";
+    case NONE: return "none";
+    default:
+        fprintf(stderr, "unrecognized response_type .. ");
+        abort();
+    }
+
+
+}
 
 struct MsgBusy {
     MsgBusy(bool b) : busy(b) {}
@@ -74,6 +90,21 @@ struct MsgCandidate {
     unsigned int iteration;
 };
 
+
+
+struct MsgSlave {
+
+    MsgSlave(role _s, bool _rep) : operation(_s), reply(_rep) {}
+
+    std::string to_string() {
+        char msg_output[64];
+        sprintf(msg_output, "(slave: %s, reply: %s)", role2str(operation), bool2str(reply));
+        return std::string(msg_output);
+    }
+
+    role operation;
+    bool reply;
+};
 
 struct MsgResult {
     MsgResult(node_id _id, weight_type _v, bool _yes_no, bool _kill, bool _cp, bool _reply, unsigned int _iter) :
@@ -123,12 +154,15 @@ class ScatFormWavvy : public ScatFormator {
                  UP_TO_DOWN_ACTION,
                  DOWN_TO_UP_WAIT,
                  DOWN_TO_UP_ACTION,
+                 OUT_DEGREE_WAIT,
+                 OUT_DEGREE_ACTION,
+                 NO_MS_WAIT,
+                 NO_MS_ACTION,
                  TERMINATE};
 
 
-    enum msgCmd {CmdCandidate, CmdResult, CmdWeight,  CmdBusy};
+    enum msgCmd {CmdCandidate, CmdResult, CmdWeight,  CmdSlave, CmdBusy};
     enum response_type {YES, NO, KILL, YOUR_CHILD, NOT_KNOWN};
-    enum role {MASTER, SLAVE, NONE};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
 
 
@@ -158,6 +192,10 @@ class ScatFormWavvy : public ScatFormator {
             "UP_TO_DOWN_ACTION",
             "DOWN_TO_UP_WAIT",
             "DOWN_TO_UP_ACTION",
+            "OUT_DEGREE_WAIT",
+            "OUT_DEGREE_ACTION",
+            "NO_MS_WAIT",
+            "NO_MS_ACTION",
             "TERMINATE",
             "Invalid_state"
         };
@@ -202,9 +240,7 @@ public:
 
 protected:
 
-    // initialization before main.
-    void init_scat_formation_algorithm();
-    void finalize_init_scat_formation_algorithm();
+
 
     // constants used with flip_neighbor_direction ..
     constexpr static const char* OUT_TO_IN = "out-to-in";
@@ -215,12 +251,19 @@ protected:
     void ex_round_messages();
     void handle_iteration_end();
     void verify_correctness();
+    // initialization before main.
+    void init_scat_formation_algorithm();
+    void finalize_init_scat_formation_algorithm();
+
 
     void recv_handler(SFmsg* msg, int rmt);
     void recv_handler_cmd_candidate(SFmsg* msg, int rmt);
     void recv_handler_cmd_result(SFmsg* msg, int rmt);
     void recv_handler_cmd_busy(SFmsg* msg, int rmt);
     void recv_handler_cmd_weight(SFmsg *msg, int rmt);
+    void recv_handler_cmd_slave(SFmsg *msg, int rmt);
+
+
     void send_busy_msg(int rmt);
 
 
@@ -239,11 +282,14 @@ protected:
     // handling states;
     void change_status(status s);
     void init_state_down_to_up_action();
+    void init_state_out_degree_wait();
+    void handle_out_degree_termination();
 
     // handling connected:
     void initiate_connected_up_to_down_action(bd_addr_t rmt);
     void initiate_connected_down_to_up_action(bd_addr_t rmt);
     void initiate_connected_init_scat_alg_action(bd_addr_t rmt);
+    void initiate_connected_out_degree_action(bd_addr_t rmt);
 
 
 
@@ -288,6 +334,9 @@ private:
 
 
     node_id find_max_node_in_scatternet();
+
+
+
 
 private:
 
@@ -382,6 +431,9 @@ private:
     nvect up_neighbors_p1, down_neighbors_p1;
     nvect up_neighbors_p2, down_neighbors_p2;
     nvect *smaller_neighbors, *larger_neighbors;
+    nvect *parents_neighbors, *children_neighbors;
+
+    std::vector<node_id> slaves_ids, masters_ids;
 
     status my_status;
     unsigned int current_iteration;
