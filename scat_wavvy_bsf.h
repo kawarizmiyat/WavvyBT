@@ -161,7 +161,7 @@ class ScatFormWavvy : public ScatFormator {
                  TERMINATE};
 
 
-    enum msgCmd {CmdCandidate, CmdResult, CmdWeight,  CmdSlave, CmdBusy};
+    enum msgCmd {CmdCandidate, CmdResult, CmdWeight,  CmdOutdegreeSlave, CmdNoMSSlave, CmdBusy};
     enum response_type {YES, NO, KILL, YOUR_CHILD, NOT_KNOWN};
     enum node_type {INTERMEDIATE, SOURCE, SINK, ISOLATED};
 
@@ -261,8 +261,8 @@ protected:
     void recv_handler_cmd_result(SFmsg* msg, int rmt);
     void recv_handler_cmd_busy(SFmsg* msg, int rmt);
     void recv_handler_cmd_weight(SFmsg *msg, int rmt);
-    void recv_handler_cmd_slave(SFmsg *msg, int rmt);
-
+    void recv_handler_cmd_outdegree_slave(SFmsg *msg, int rmt);
+    void recv_handler_cmd_no_ms_slave(SFmsg* msg, int rmt);
 
     void send_busy_msg(int rmt);
 
@@ -283,14 +283,16 @@ protected:
     void change_status(status s);
     void init_state_down_to_up_action();
     void init_state_out_degree_wait();
+    void init_state_no_ms_wait();
     void handle_out_degree_termination();
+    void handle_no_ms_termination();
 
     // handling connected:
     void initiate_connected_up_to_down_action(bd_addr_t rmt);
     void initiate_connected_down_to_up_action(bd_addr_t rmt);
     void initiate_connected_init_scat_alg_action(bd_addr_t rmt);
     void initiate_connected_out_degree_action(bd_addr_t rmt);
-
+    void initiate_connected_no_ms_action(bd_addr_t rmt);
 
 
 private:
@@ -304,6 +306,12 @@ private:
     void build_up_neighbors_yes_no_table(node_id rmt, node_id max_candidate_id);
     bool rcvd_kill_or_your_child_f_all_d_neighbors();
     // bool only_one_yes_neighbor(node_id& the_yes_neighbor);
+
+
+    // these functions are used for outdegree and no_ms states.
+    void change_my_role_according_to_operation(role op, int rmt);
+    void handle_cmd_outdegree_or_noms_command(uchar command_name, role op, bool reply, int rmt);
+
 
 
     // wait for, cancel, and make connection ..
